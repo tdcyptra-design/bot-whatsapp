@@ -167,7 +167,7 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    // Utilisation de session_v3 pour forcer une session propre et éviter les conflits
+    // Utilisation de session_v3 (le dossier sera créé automatiquement par le bot)
     const { state, saveCreds } = await useMultiFileAuthState('session_v3');
 
     const sock = makeWASocket({
