@@ -169,7 +169,7 @@ async function connectToWhatsApp() {
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        browser: ["Ubuntu", "Chrome", "22.04.4"]
+        browser: ['Chrome (Linux)', 'Chrome', '120.0.6099.28']
     });
 
     globalSock = sock;
@@ -191,7 +191,7 @@ async function connectToWhatsApp() {
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente a WhatsApp!');
+            console.log('¡Bot conectado correctamente à WhatsApp!');
         }
     });
 
