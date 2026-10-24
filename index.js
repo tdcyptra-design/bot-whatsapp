@@ -5,11 +5,11 @@ const express = require('express');
 
 const DATA_FILE = './data.json';
 
-// NUMÉRO DU DÉVELOPPEUR / OWNER
+// NÚMERO DEL DESARROLLADOR / OWNER
 const DEV_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net']; 
 const BOT_NAME = "TEAM DRONIX";
 
-// --- SERVEUR WEB EXPRESS POUR LE PANNEAU PANNEAU WEB ---
+// --- SERVEUR WEB EXPRESS POUR LE PANNEAU STYLE SYSTEM PANEL ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json());
@@ -25,25 +25,65 @@ app.get('/', (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>TEAM DRONIX // System Panel</title>
         <style>
-            body { background-color: #0b0e14; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            .panel { background: #121824; border: 1px solid #00ffcc; padding: 30px; border-radius: 12px; box-shadow: 0 0 20px rgba(0,255,204,0.2); text-align: center; width: 320px; }
-            h1 { color: #ff0055; margin-bottom: 20px; font-size: 22px; }
-            input { width: 90%; padding: 12px; margin: 10px 0; background: #0b0e14; border: 1px solid #00ffcc; color: #fff; border-radius: 6px; text-align: center; font-size: 16px; }
-            button { width: 98%; padding: 12px; background: #ff0055; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-            button:hover { background: #d00044; }
-            #codeDisplay { margin-top: 20px; font-size: 20px; font-weight: bold; color: #ffff00; word-break: break-all; }
+            body { background-color: #05070b; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; margin: 0; padding: 20px; }
+            .container { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 20px; }
+            .header-bar { display: flex; justify-content: space-between; align-items: center; background: #0b101b; border: 1px solid #1a233a; padding: 10px 15px; border-radius: 8px; font-size: 12px; }
+            .status-online { color: #00ffcc; display: flex; align-items: center; gap: 5px; }
+            .status-online::before { content: ''; width: 8px; height: 8px; background: #00ffcc; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00ffcc; }
+            
+            .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+            .stat-card { background: #0b101b; border: 1px solid #1a233a; padding: 15px; border-radius: 8px; text-align: center; }
+            .stat-title { font-size: 11px; color: #64748b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+            .stat-value { font-size: 24px; font-weight: bold; color: #fff; }
+            
+            .panel { background: #0b101b; border: 1px solid #ff0055; padding: 25px; border-radius: 12px; box-shadow: 0 0 25px rgba(255,0,85,0.15); text-align: center; }
+            h1 { color: #ff0055; margin-bottom: 5px; font-size: 24px; letter-spacing: 2px; }
+            .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; text-transform: uppercase; }
+            input { width: 90%; padding: 14px; margin: 10px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 6px; text-align: center; font-size: 16px; outline: none; transition: 0.3s; }
+            input:focus { border-color: #ff0055; box-shadow: 0 0 10px rgba(255,0,85,0.3); }
+            button { width: 98%; padding: 14px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
+            button:hover { background: #ff0055; color: white; box-shadow: 0 0 15px rgba(255,0,85,0.5); }
+            #codeDisplay { margin-top: 20px; font-size: 22px; font-weight: bold; color: #ffff00; word-break: break-all; }
         </style>
     </head>
     <body>
-        <div class="panel">
-            <h1>SYSTEM PANEL</h1>
-            <p style="color: #888;">TEAM DRONIX SUBBOT</p>
-            <input type="text" id="phone" placeholder="EJ: 56928637216">
-            <button onclick="requestPairing()">PEDIR CODIGO</button>
-            <div id="codeDisplay"></div>
+        <div class="container">
+            <div class="header-bar">
+                <div class="status-online">SYS ONLINE</div>
+                <div id="uptime" style="color: #888;">00:00:00</div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-title">BOTS CONECTADOS</div>
+                    <div class="stat-value">1</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">ESTADO</div>
+                    <div class="stat-value" style="font-size: 16px; color: #00ffcc; margin-top: 5px;">ACTIVO</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h1>TEAM DRONIX</h1>
+                <div class="subtitle">System Pairing Panel</div>
+                <input type="text" id="phone" placeholder="EJ: 56928637216">
+                <button onclick="requestPairing()">PEDIR CODIGO</button>
+                <div id="codeDisplay"></div>
+            </div>
         </div>
 
         <script>
+            // Compteur de temps en ligne simple
+            let seconds = 0;
+            setInterval(() => {
+                seconds++;
+                let h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+                let m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+                let s = (seconds % 60).toString().padStart(2, '0');
+                document.getElementById('uptime').innerText = \`\${h}:\${m}:\${s}\`;
+            }, 1000);
+
             async function requestPairing() {
                 const phone = document.getElementById('phone').value.trim();
                 const display = document.getElementById('codeDisplay');
@@ -150,7 +190,7 @@ async function connectToWhatsApp() {
             console.log('Conexión cerrada. Reconectando...', shouldReconnect);
             if (shouldReconnect) connectToWhatsApp();
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente a WhatsApp!');
+            console.log('¡Bot conectado correctamente à WhatsApp!');
         }
     });
 
@@ -315,7 +355,6 @@ async function connectToWhatsApp() {
                 `• *{p}ban @usuario* | *{p}unban @usuario*\n` +
                 `• *{p}mute @usuario <tiempo>* | *{p}unmute @usuario*`;
 
-            // SECCIÓN EXCLUSIVA PARA EL OWNER / DEV
             if (isDev) {
                 menuText += `\n\n👑 *COMANDOS EXCLUSIVOS OWNER / DEV:*\n` +
                     `• *{p}autoadmin* : Volverte admin automáticamente en el grupo.\n` +
