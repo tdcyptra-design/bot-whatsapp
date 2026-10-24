@@ -26,7 +26,8 @@ function getPlayer(data, id) {
             wins: 0,
             losses: 0,
             active: 0,
-            hasStarted: false, // Contrôle pour que /pstart ne s'utilise qu'une seule fois
+            hasStarted: false, 
+            messageCount: 0, // Compteur de messages pour l'XP
             pokes: [
                 { name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', image: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png' }
             ],
@@ -36,6 +37,10 @@ function getPlayer(data, id) {
             mutedUntil: 0
         };
     }
+    // S'assurer que messageCount existe pour les anciens joueurs enregistrés
+    if (data.players[id].messageCount === undefined) {
+        data.players[id].messageCount = 0;
+    }
     return data.players[id];
 }
 
@@ -44,8 +49,24 @@ async function connectToWhatsApp() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true
+        printQRInTerminal: false // Désactivé pour privilégier le pairing code sur Render
     });
+
+    // --- ASSOCIATION PAR CODE DE COUPLAGE (PAIRING CODE) POUR RENDER ---
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "56928637216"; // Ton numéro de développeur
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(phoneNumber);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(`\n==================================================`);
+                console.log(`🔑 CÓDIGO DE VINCULACIÓN DE WHATSAPP: ${code}`);
+                console.log(`==================================================\n`);
+            } catch (err) {
+                console.error("Error al solicitar el código de emparejamiento:", err);
+            }
+        }, 4000);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -60,7 +81,7 @@ async function connectToWhatsApp() {
             console.log('Conexión cerrada. Reconectando...', shouldReconnect);
             if (shouldReconnect) connectToWhatsApp();
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente à WhatsApp!');
+            console.log('¡Bot conectado correctamente a WhatsApp!');
         }
     });
 
@@ -89,20 +110,20 @@ async function connectToWhatsApp() {
                       senderClean.includes('56928637216') || 
                       DEV_NUMBERS.some(num => sender.includes(num));
 
-        // --- SYSTÈME D'EXPÉRIENCE PASSIVE AU CHAT ---
+        // --- SISTEMA DE EXPERIENCIA PASIVA (AUMENTA DE NIVEL CADA 20 MENSAJES) ---
         if (player.pokes && player.pokes.length > 0) {
-            const activePoke = player.pokes[player.active || 0];
-            activePoke.xp = (activePoke.xp || 0) + 10;
-
-            const xpNeeded = activePoke.level * 50;
-            if (activePoke.xp >= xpNeeded) {
+            player.messageCount += 1;
+            
+            // Tous les 20 messages envoyés, le Pokémon monte d'un niveau
+            if (player.messageCount >= 20) {
+                player.messageCount = 0; // Réinitialise le compteur
+                const activePoke = player.pokes[player.active || 0];
                 activePoke.level += 1;
                 activePoke.power += 5;
-                activePoke.xp = 0;
                 saveData(data);
 
                 await sock.sendMessage(from, { 
-                    text: `🎉 ¡El Pokémon *${activePoke.name.toUpperCase()}* de @${senderClean} subió al *Nivel ${activePoke.level}* por chatear! (Poder: ${activePoke.power})`,
+                    text: `🎉 ¡El Pokémon *${activePoke.name.toUpperCase()}* de @${senderClean} subió al *Nivel ${activePoke.level}* por enviar 20 mensajes! (Poder: ${activePoke.power})`,
                     mentions: [sender]
                 });
             } else {
@@ -110,7 +131,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        // Vérification des préfixes acceptés : / , . #
+        // Verificación de prefijos aceptados : / , . #
         const validPrefixes = ['/', ',', '.', '#'];
         const prefix = validPrefixes.find(p => text.startsWith(p));
         if (!prefix) return;
@@ -143,10 +164,10 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- COMMANDE TEST /MYID ---
+        // --- COMANDO TEST /MYID ---
         if (command === 'myid') {
             await sock.sendMessage(from, { 
-                text: `📱 *INFORMATIONS PROFIL :*\n\n• ID: \`${sender}\`\n• Clean: \`${senderClean}\`\n• IsDev: *${isDev ? 'OUI ✅' : 'NON ❌'}*\n• IsAdmin: *${isAdmin ? 'OUI ✅' : 'NON ❌'}*` 
+                text: `📱 *INFORMACIÓN DE PERFIL:*\n\n• ID: \`${sender}\`\n• Limpio: \`${senderClean}\`\n• EsDev: *${isDev ? 'SÍ ✅' : 'NO ❌'}*\n• EsAdmin: *${isAdmin ? 'SÍ ✅' : 'NO ❌'}*` 
             }, { quoted: msg });
             return;
         }
@@ -163,7 +184,7 @@ async function connectToWhatsApp() {
                 data.groups[from] = data.groups[from] || {};
                 data.groups[from].botOff = true;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con /bot on.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con {p}bot on.`.replace(/\{p\}/g, prefix) }, { quoted: msg });
                 return;
             } else if (option === 'on') {
                 data.groups[from] = data.groups[from] || {};
@@ -172,7 +193,7 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `🟢 *¡${BOT_NAME} activado nuevamente en este grupo!* Listo para usar.` }, { quoted: msg });
                 return;
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso correcto: /bot on | /bot off` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso correcto: {p}bot on | {p}bot off`.replace(/\{p\}/g, prefix) }, { quoted: msg });
                 return;
             }
         }
@@ -186,39 +207,39 @@ async function connectToWhatsApp() {
                 `• *{p}equipo* : Ver tu equipo y Pokémon activo.\n` +
                 `• *{p}pstart <nombre>* : Obtener Pokémon inicial (1 solo uso).\n` +
                 `• *{p}pelegir <número>* : Seleccionar tu Pokémon activo.\n` +
-                `• *{p}buycandy* : Comprar Super Candy (+5 lvl / 150 coins).\n` +
+                `• *{p}buycandy* : Comprar Super Candy (+5 lvl / 150 monedas).\n` +
                 `• *{p}pcombatir @usuario* : Desafiar a un jugador.\n` +
                 `• *{p}paceptar* : Aceptar combate.\n` +
                 `• *{p}huir* : Huir de la batalla.\n` +
                 `• *{p}pm 1, 2, 3, 4* : Atacar con HP en tiempo real.\n` +
-                `• *{p}evolucionar mega|dynamax|gigantamax* : Forma especial (500 coins).\n\n` +
-                `📥 *MEDIA & DESCARGAS:*\n` +
-                `• *{p}yt <búsqueda>* : Descargar/buscar info de YouTube.\n` +
+                `• *{p}evolucionar mega|dynamax|gigantamax* : Forma especial (500 monedas).\n\n` +
+                `📥 *MULTIMEDIA & DESCARGAS:*\n` +
+                `• *{p}yt <búsqueda>* : Buscar info de YouTube.\n` +
                 `• *{p}pinterest <búsqueda>* : Buscar imágenes en Pinterest.\n` +
                 `• *{p}image <búsqueda>* : Buscar imágenes en Google.\n\n` +
                 `🎂 *PERFIL & CUMPLEAÑOS:*\n` +
                 `• *{p}reg DD/MM/AAAA* : Registrar fecha.\n` +
                 `• *{p}birthday @usuario* : Ver cumpleaños.\n` +
-                `• *{p}bal* : Ver saldo de coins.\n\n` +
-                `👑 *COMANDOS DEV & ADMIN:*\n` +
+                `• *{p}bal* : Ver saldo de monedas.\n\n` +
+                `👑 *COMANDOS DE DEV & ADMIN:*\n` +
                 `• *{p}grupo abrir* / *{p}grupo cerrar*\n` +
-                `• *{p}givepoke @usuario <poke> <power>*\n` +
+                `• *{p}givepoke @usuario <pokemon> <poder>*\n` +
                 `• *{p}givecoins @usuario <monto>*\n` +
                 `• *{p}ban @usuario* | *{p}unban @usuario*\n` +
                 `• *{p}mute @usuario <10m|1h|1d>* | *{p}unmute @usuario*`.replace(/\{p\}/g, prefix);
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
 
-        // --- COMMANDE : PSTART ---
+        // --- COMANDO : PSTART ---
         else if (command === 'pstart') {
             if (player.hasStarted && !isDev) {
-                await sock.sendMessage(from, { text: '❌ Ya usaste tu /pstart inicial. Usa /pelegir para cambiar tu Pokémon o evoluciónalos.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Ya usaste tu ${prefix}pstart inicial. Usa ${prefix}pelegir para cambiar tu Pokémon.` }, { quoted: msg });
                 return;
             }
 
             const pokeName = args[1]?.toLowerCase();
             if (!pokeName) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /pstart <nombre_pokemon>' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}pstart <nombre_pokemon>` }, { quoted: msg });
                 return;
             }
 
@@ -237,11 +258,11 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `🎉 ¡Has obtenido a *${pokeName.toUpperCase()}*! Ahora es tu Pokémon activo ⭐` }, { quoted: msg });
         }
 
-        // --- COMMANDE : PELEGIR ---
+        // --- COMANDO : PELEGIR ---
         else if (command === 'pelegir') {
             const index = parseInt(args[1]) - 1;
             if (isNaN(index) || index < 0 || index >= player.pokes.length) {
-                await sock.sendMessage(from, { text: `⚠️ Uso: /pelegir <número_del_pokemon>. Revisa tu lista con /equipo` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}pelegir <número_del_pokemon>. Revisa tu lista con ${prefix}equipo` }, { quoted: msg });
                 return;
             }
 
@@ -252,11 +273,11 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `⭐ Has seleccionado a *${selected.name.toUpperCase()}* [Nvl ${selected.level}] como tu Pokémon activo.` }, { quoted: msg });
         }
 
-        // --- COMMANDE : BUYCANDY ---
+        // --- COMANDO : BUYCANDY ---
         else if (command === 'buycandy') {
             const cost = 150;
             if (player.money < cost) {
-                await sock.sendMessage(from, { text: `❌ No tienes suficientes coins. Un Super Candy cuesta ${cost} coins (Tienes: ${player.money}).` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ No tienes suficientes monedas. Un Super Candy cuesta ${cost} monedas (Tienes: ${player.money}).` }, { quoted: msg });
                 return;
             }
             player.money -= cost;
@@ -266,15 +287,15 @@ async function connectToWhatsApp() {
             saveData(data);
 
             await sock.sendMessage(from, { 
-                text: `🍬 ¡Has comprado un *Super Candy*! Tu *${activePoke.name.toUpperCase()}* subió al Nivel ${activePoke.level} (Poder: ${activePoke.power}). Saldo restante: ${player.money} coins.` 
+                text: `🍬 ¡Has comprado un *Super Candy*! Tu *${activePoke.name.toUpperCase()}* subió al Nivel ${activePoke.level} (Poder: ${activePoke.power}). Saldo restante: ${player.money} monedas.` 
             }, { quoted: msg });
         }
 
-        // --- COMMANDES MEDIA ---
+        // --- COMANDOS MULTIMEDIA ---
         else if (command === 'yt' || command === 'youtube') {
             const query = args.slice(1).join(' ');
             if (!query) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /yt <nombre o término de búsqueda>' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}yt <nombre o término de búsqueda>` }, { quoted: msg });
                 return;
             }
             await sock.sendMessage(from, { text: `🔍 Buscando en YouTube: *${query}*...\n🔗 Enlace de búsqueda: https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` }, { quoted: msg });
@@ -283,7 +304,7 @@ async function connectToWhatsApp() {
         else if (command === 'pinterest') {
             const query = args.slice(1).join(' ');
             if (!query) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /pinterest <término>' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}pinterest <término>` }, { quoted: msg });
                 return;
             }
             const pinUrl = `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`;
@@ -293,14 +314,14 @@ async function connectToWhatsApp() {
         else if (command === 'image' || command === 'google') {
             const query = args.slice(1).join(' ');
             if (!query) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /image <término>' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}image <término>` }, { quoted: msg });
                 return;
             }
             const imgUrl = `https://images.weserv.nl/?url=source.unsplash.com/featured/?${encodeURIComponent(query)}`;
             await sock.sendMessage(from, { image: { url: imgUrl }, caption: `🖼️ Imagen relacionada con: *${query}*` }, { quoted: msg });
         }
 
-        // --- COMMANDES DEV ---
+        // --- COMANDOS DEV ---
         else if (command === 'givepoke') {
             if (!isDev) {
                 await sock.sendMessage(from, { text: '❌ Este comando es exclusivo para el Desarrollador.' }, { quoted: msg });
@@ -312,7 +333,7 @@ async function connectToWhatsApp() {
             const power = parseInt(args[args.length - 1]) || 100;
 
             if (!pokeName) {
-                await sock.sendMessage(from, { text: '⚠️ Uso Dev: /givepoke @usuario <pokemon> <poder>' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso Dev: ${prefix}givepoke @usuario <pokemon> <poder>` }, { quoted: msg });
                 return;
             }
 
@@ -344,7 +365,7 @@ async function connectToWhatsApp() {
             const amount = parseInt(args[args.length - 1]);
 
             if (isNaN(amount)) {
-                await sock.sendMessage(from, { text: '⚠️ Uso Dev: /givecoins @usuario <monto>' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso Dev: ${prefix}givecoins @usuario <monto>` }, { quoted: msg });
                 return;
             }
 
@@ -354,12 +375,12 @@ async function connectToWhatsApp() {
             saveData(data);
 
             await sock.sendMessage(from, { 
-                text: `💰 *[DEV]* ¡Se agregaron *${amount} coins* a @${targetClean}! Saldo actual: ${targetObj.money}`,
+                text: `💰 *[DEV]* ¡Se agregaron *${amount} monedas* a @${targetClean}! Saldo actual: ${targetObj.money}`,
                 mentions: [target]
             }, { quoted: msg });
         }
 
-        // --- COMMANDES ADMIN & MODERATION ---
+        // --- COMANDOS ADMIN & MODERACIÓN ---
         else if (command === 'grupo') {
             if (!isAdmin) {
                 await sock.sendMessage(from, { text: '❌ Solo los Administradores pueden gestionar el grupo.' }, { quoted: msg });
@@ -371,9 +392,9 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: '🔓 *El grupo ha sido abierto.* ¡Todos pueden hablar!' }, { quoted: msg });
             } else if (action === 'cerrar' || action === 'close') {
                 await sock.groupSettingUpdate(from, 'announcement');
-                await sock.sendMessage(from, { text: '🔒 *El grupo ha sido cerrado.* Solo admins pueden hablar.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: '🔒 *El grupo ha sido cerrado.* Solo los administradores pueden hablar.' }, { quoted: msg });
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso correcto: /grupo abrir | /grupo cerrar` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso correcto: ${prefix}grupo abrir | ${prefix}grupo cerrar` }, { quoted: msg });
             }
         }
 
@@ -386,7 +407,7 @@ async function connectToWhatsApp() {
         else if (command === 'cerrar' || command === 'close') {
             if (!isAdmin) return;
             await sock.groupSettingUpdate(from, 'announcement');
-            await sock.sendMessage(from, { text: '🔒 *El grupo ha sido cerrado.* Solo admins pueden hablar.' }, { quoted: msg });
+            await sock.sendMessage(from, { text: '🔒 *El grupo ha sido cerrado.* Solo los administradores pueden hablar.' }, { quoted: msg });
         }
 
         else if (command === 'kick') {
@@ -407,7 +428,7 @@ async function connectToWhatsApp() {
             }
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             if (!target) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /ban @usuario' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}ban @usuario` }, { quoted: msg });
                 return;
             }
             const targetClean = target.replace(/[^0-9]/g, '');
@@ -447,7 +468,7 @@ async function connectToWhatsApp() {
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             const timeArg = args[2];
             if (!target || !timeArg) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /mute @usuario <tiempo> (Ej: 10m, 1h, 2d)' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}mute @usuario <tiempo> (Ej: 10m, 1h, 2d)` }, { quoted: msg });
                 return;
             }
             const unit = timeArg.slice(-1).toLowerCase();
@@ -478,7 +499,7 @@ async function connectToWhatsApp() {
             let info = `📱 *Equipo de @${senderClean}:*\n\n`;
             player.pokes.forEach((p, idx) => {
                 const activeTag = (idx === player.active) ? ' ⭐ (Activo)' : '';
-                info += `${idx + 1}. *${p.name.toUpperCase()}* [Nvl ${p.level}] (XP: ${p.xp || 0}/${p.level * 50}) (Poder: ${p.power}) - Forma: ${p.form || 'Normal'}${activeTag}\n`;
+                info += `${idx + 1}. *${p.name.toUpperCase()}* [Nvl ${p.level}] (Progreso chat: ${player.messageCount}/20 msgs) (Poder: ${p.power}) - Forma: ${p.form || 'Normal'}${activeTag}\n`;
             });
             await sock.sendMessage(from, { text: info, mentions: [sender] }, { quoted: msg });
         }
@@ -486,7 +507,7 @@ async function connectToWhatsApp() {
         else if (command === 'pcombatir') {
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             if (!target) {
-                await sock.sendMessage(from, { text: '⚠️ Menciona a un jugador: /pcombatir @usuario' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Menciona a un jugador: ${prefix}pcombatir @usuario` }, { quoted: msg });
                 return;
             }
             const targetClean = target.replace(/[^0-9]/g, '');
@@ -495,7 +516,7 @@ async function connectToWhatsApp() {
             activeBattles[from] = { p1: senderClean, p2: targetClean, status: 'pending' };
 
             await sock.sendMessage(from, { 
-                text: `⚔️ @${senderClean} desafió a @${targetClean}.\nEscribe */paceptar* para empezar o */huir* para cancelar.`,
+                text: `⚔️ @${senderClean} desafió a @${targetClean}.\nEscribe *${prefix}paceptar* para empezar o *${prefix}huir* para cancelar.`,
                 mentions: [sender, target]
             }, { quoted: msg });
         }
@@ -521,7 +542,7 @@ async function connectToWhatsApp() {
             const jid2 = `${battle.p2}@s.whatsapp.net`;
 
             await sock.sendMessage(from, { 
-                text: `🥊 ¡COMBATE INICIADO!\n🔴 @${battle.p1} (${p1Poke.name.toUpperCase()}) - HP: ${battle.p1Hp}\n🔵 @${battle.p2} (${p2Poke.name.toUpperCase()}) - HP: ${battle.p2Hp}\n\nTurno de @${battle.p1}. Usa /pm 1, 2, 3 o 4.`,
+                text: `🥊 ¡COMBATE INICIADO!\n🔴 @${battle.p1} (${p1Poke.name.toUpperCase()}) - HP: ${battle.p1Hp}\n🔵 @${battle.p2} (${p2Poke.name.toUpperCase()}) - HP: ${battle.p2Hp}\n\nTurno de @${battle.p1}. Usa ${prefix}pm 1, 2, 3 o 4.`,
                 mentions: [jid1, jid2]
             });
         }
@@ -548,7 +569,7 @@ async function connectToWhatsApp() {
             }
             const moveNum = parseInt(args[1]);
             if (![1, 2, 3, 4].includes(moveNum)) {
-                await sock.sendMessage(from, { text: '⚠️ Usa /pm 1, 2, 3 o 4' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Usa ${prefix}pm 1, 2, 3 o 4` }, { quoted: msg });
                 return;
             }
 
@@ -580,11 +601,11 @@ async function connectToWhatsApp() {
                 const winner = (battle.p1Hp > 0) ? battle.p1 : battle.p2;
                 getPlayer(data, winner).money += 200;
                 saveData(data);
-                resText += `🏆 ¡@${winner} ganó el combate y 200 coins! 🎉`;
+                resText += `🏆 ¡@${winner} ganó el combate y 200 monedas! 🎉`;
                 delete activeBattles[from];
             } else {
                 battle.turn = defender;
-                resText += `👉 Turno de @${defender}. Usa /pm 1,2,3,4`;
+                resText += `👉 Turno de @${defender}. Usa ${prefix}pm 1,2,3,4`;
             }
 
             await sock.sendMessage(from, { text: resText, mentions: [jid1, jid2] });
@@ -593,11 +614,11 @@ async function connectToWhatsApp() {
         else if (command === 'evolucionar') {
             const formType = args[1]?.toLowerCase();
             if (!['mega', 'dynamax', 'gigantamax'].includes(formType)) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /evolucionar mega | dynamax | gigantamax (500 coins)' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}evolucionar mega | dynamax | gigantamax (500 monedas)` }, { quoted: msg });
                 return;
             }
             if (player.money < 500) {
-                await sock.sendMessage(from, { text: `❌ Necesitas 500 coins. Tienes ${player.money}` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Necesitas 500 monedas. Tienes ${player.money}` }, { quoted: msg });
                 return;
             }
             const activePoke = player.pokes[player.active];
@@ -612,7 +633,7 @@ async function connectToWhatsApp() {
         else if (command === 'reg') {
             const dateStr = args[1];
             if (!dateStr || !dateStr.includes('/')) {
-                await sock.sendMessage(from, { text: '⚠️ Uso: /reg DD/MM/AAAA' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}reg DD/MM/AAAA` }, { quoted: msg });
                 return;
             }
             const parts = dateStr.split('/');
@@ -634,7 +655,7 @@ async function connectToWhatsApp() {
         }
 
         else if (command === 'bal') {
-            await sock.sendMessage(from, { text: `💰 Saldo: *${player.money} coins*` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `💰 Saldo: *${player.money} monedas*` }, { quoted: msg });
         }
     });
 }
