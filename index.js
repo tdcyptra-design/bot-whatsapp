@@ -163,8 +163,8 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    // USAMOS session_v5 PARA FORZAR UNA SESIÓN NUEVA Y LIMPIA AUTOMÁTICAMENTE
-    const { state, saveCreds } = await useMultiFileAuthState('session_v5');
+    // USAMOS session_v4 PARA USAR LA SESIÓN GUARDADA
+    const { state, saveCreds } = await useMultiFileAuthState('session_v4');
 
     const sock = makeWASocket({
         auth: state,
