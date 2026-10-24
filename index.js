@@ -27,7 +27,7 @@ function getPlayer(data, id) {
             losses: 0,
             active: 0,
             hasStarted: false, 
-            messageCount: 0, // Compteur de messages pour l'XP
+            messageCount: 0,
             pokes: [
                 { name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', image: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png' }
             ],
@@ -44,16 +44,17 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_principal');
+    // CAMBIAMOS A 'session_v2' PARA FORZAR UNA NUEVA VINCULACIÓN
+    const { state, saveCreds } = await useMultiFileAuthState('session_v2');
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false // Désactivé pour privilégier le pairing code sur Render
+        printQRInTerminal: false
     });
 
-    // --- CÓDIGO DE VINCULACIÓN DE 8 DÍGITOS (PAIRING CODE) PARA RENDER ---
+    // --- CÓDIGO DE VINCULACIÓN DE 8 DÍGITOS (PAIRING CODE) ---
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "56928637216"; // Tu número de desarrollador
+        const phoneNumber = "56928637216"; // Tu número
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -109,13 +110,12 @@ async function connectToWhatsApp() {
                       senderClean.includes('56928637216') || 
                       DEV_NUMBERS.some(num => sender.includes(num));
 
-        // --- SISTEMA DE EXPERIENCIA PASIVA (AUMENTA DE NIVEL CADA 20 MENSAJES) ---
+        // --- SISTEMA DE EXPERIENCIA PASIVA (SUBE CADA 20 MENSAJES) ---
         if (player.pokes && player.pokes.length > 0) {
             player.messageCount += 1;
             
-            // Tous les 20 messages envoyés, le Pokémon monte d'un niveau
             if (player.messageCount >= 20) {
-                player.messageCount = 0; // Réinitialise le compteur
+                player.messageCount = 0; 
                 const activePoke = player.pokes[player.active || 0];
                 activePoke.level += 1;
                 activePoke.power += 5;
@@ -130,7 +130,7 @@ async function connectToWhatsApp() {
             }
         }
 
-        // Verificación de prefijos aceptados : / , . #
+        // Prefijos válidos
         const validPrefixes = ['/', ',', '.', '#'];
         const prefix = validPrefixes.find(p => text.startsWith(p));
         if (!prefix) return;
@@ -183,7 +183,7 @@ async function connectToWhatsApp() {
                 data.groups[from] = data.groups[from] || {};
                 data.groups[from].botOff = true;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con {p}bot on.`.replace(/\{p\}/g, prefix) }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con ${prefix}bot on.` }, { quoted: msg });
                 return;
             } else if (option === 'on') {
                 data.groups[from] = data.groups[from] || {};
@@ -192,7 +192,7 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `🟢 *¡${BOT_NAME} activado nuevamente en este grupo!* Listo para usar.` }, { quoted: msg });
                 return;
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso correcto: {p}bot on | {p}bot off`.replace(/\{p\}/g, prefix) }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso correcto: ${prefix}bot on | ${prefix}bot off` }, { quoted: msg });
                 return;
             }
         }
