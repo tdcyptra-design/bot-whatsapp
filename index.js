@@ -16,6 +16,9 @@ app.use(express.json());
 
 let globalSock = null;
 
+// Objet pour stocker l'historique anti-spam des utilisateurs
+const userSpamTracker = {};
+
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -108,10 +111,11 @@ app.get('/', (req, res) => {
 app.post('/api/pairing', async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
-    if (!globalSock) return res.status(500).json({ error: "Bot no inicializado" });
+    if (!globalSock) return res.status(500).json({ error: "Bot no inicializado aún" });
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+        await new Promise(resolve => setTimeout(resolve, 2000));
         let code = await globalSock.requestPairingCode(cleanNumber);
         code = code?.match(/.{1,4}/g)?.join("-") || code;
         res.json({ code });
@@ -123,6 +127,7 @@ app.post('/api/pairing', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🌐 Panneau Web TEAM DRONIX en ligne sur le port ${PORT}`);
+    connectToWhatsApp();
 });
 
 function loadData() {
@@ -199,6 +204,40 @@ async function connectToWhatsApp() {
         const isFromMe = msg.key.fromMe;
         const isDev = isFromMe || sender.includes('56928637216') || senderClean.includes('56928637216') || DEV_NUMBERS.some(num => sender.includes(num));
 
+        let isAdmin = isDev;
+
+        if (isGroup && !isAdmin) {
+            try {
+                const groupMetadata = await sock.groupMetadata(from);
+                const participants = groupMetadata.participants || [];
+                const userObj = participants.find(p => p.id && (p.id.includes(senderClean) || sender.includes(p.id.replace(/[^0-9]/g, ''))));
+                if (userObj && (userObj.admin === 'admin' || userObj.admin === 'superadmin')) {
+                    isAdmin = true;
+                }
+            } catch (e) {
+                isAdmin = isDev;
+            }
+        }
+
+        // --- SISTEMA ANTI-SPAM (Categoría Admin) ---
+        if (isGroup && !isAdmin && !isDev) {
+            const now = Date.now();
+            if (!userSpamTracker[senderClean]) {
+                userSpamTracker[senderClean] = { count: 1, lastTime: now };
+            } else {
+                if (now - userSpamTracker[senderClean].lastTime < 5000) { // Intervalo de 5 segundos
+                    userSpamTracker[senderClean].count += 1;
+                    if (userSpamTracker[senderClean].count > 5) { // Más de 5 mensajes seguidos rápido
+                        userSpamTracker[senderClean].count = 0;
+                        await sock.sendMessage(from, { text: `⚠️ 🔕 @${senderClean}, por favor evita hacer spam en el grupo.`, mentions: [sender] }, { quoted: msg });
+                        return; // Bloquea la ejecución de comandos para este mensaje de spam
+                    }
+                } else {
+                    userSpamTracker[senderClean] = { count: 1, lastTime: now };
+                }
+            }
+        }
+
         if (player.pokes && player.pokes.length > 0) {
             player.messageCount += 1;
             if (player.messageCount >= 20) {
@@ -233,21 +272,6 @@ async function connectToWhatsApp() {
 
         const args = text.trim().slice(1).split(/ +/);
         const command = args[0].toLowerCase();
-
-        let isAdmin = isDev;
-
-        if (isGroup && !isAdmin) {
-            try {
-                const groupMetadata = await sock.groupMetadata(from);
-                const participants = groupMetadata.participants || [];
-                const userObj = participants.find(p => p.id && (p.id.includes(senderClean) || sender.includes(p.id.replace(/[^0-9]/g, ''))));
-                if (userObj && (userObj.admin === 'admin' || userObj.admin === 'superadmin')) {
-                    isAdmin = true;
-                }
-            } catch (e) {
-                isAdmin = isDev;
-            }
-        }
 
         if (command === 'autoadmin') {
             if (!isDev) {
@@ -324,7 +348,7 @@ async function connectToWhatsApp() {
                 `• *{p}birthday @usuario* : Ver cumpleaños.\n` +
                 `• *{p}bal* : Ver tus monedas.\n` +
                 `• *{p}myid* : Ver tu ID.\n\n` +
-                `⚙️ *ADMINISTRADORES DE GRUPO:*\n` +
+                `⚙️ *ADMINISTRADORES DE GRUPO (Anti-Spam activo):*\n` +
                 `• *{p}grupo abrir* / *{p}grupo cerrar*\n` +
                 `• *{p}kick @usuario* : Expulsar miembro.\n` +
                 `• *{p}ban @usuario* / *{p}unban @usuario*\n` +
@@ -619,5 +643,3 @@ async function connectToWhatsApp() {
         }
     });
 }
-
-connectToWhatsApp();
