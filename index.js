@@ -115,7 +115,6 @@ app.post('/api/pairing', async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
     
-    // Esperar a que el bot inicialice el socket global si aún se está conectando
     let retries = 10;
     while (!globalSock && retries > 0) {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -164,7 +163,8 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_v4');
+    // USAMOS session_v5 PARA FORZAR UNA SESIÓN NUEVA Y LIMPIA AUTOMÁTICAMENTE
+    const { state, saveCreds } = await useMultiFileAuthState('session_v5');
 
     const sock = makeWASocket({
         auth: state,
