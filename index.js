@@ -1,13 +1,97 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
+const express = require('express');
 
 const DATA_FILE = './data.json';
 
-// NÚMERO DEL DESARROLLADOR / DEV
+// NUMÉRO DU DÉVELOPPEUR / OWNER
 const DEV_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net']; 
 const BOT_NAME = "TEAM DRONIX";
 
+// --- SERVEUR WEB EXPRESS POUR LE PANNEAU PANNEAU WEB ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.use(express.json());
+
+let globalSock = null; // Référence globale pour le socket Baileys
+
+app.get('/', (req, res) => {
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>TEAM DRONIX // System Panel</title>
+        <style>
+            body { background-color: #0b0e14; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .panel { background: #121824; border: 1px solid #00ffcc; padding: 30px; border-radius: 12px; box-shadow: 0 0 20px rgba(0,255,204,0.2); text-align: center; width: 320px; }
+            h1 { color: #ff0055; margin-bottom: 20px; font-size: 22px; }
+            input { width: 90%; padding: 12px; margin: 10px 0; background: #0b0e14; border: 1px solid #00ffcc; color: #fff; border-radius: 6px; text-align: center; font-size: 16px; }
+            button { width: 98%; padding: 12px; background: #ff0055; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+            button:hover { background: #d00044; }
+            #codeDisplay { margin-top: 20px; font-size: 20px; font-weight: bold; color: #ffff00; word-break: break-all; }
+        </style>
+    </head>
+    <body>
+        <div class="panel">
+            <h1>SYSTEM PANEL</h1>
+            <p style="color: #888;">TEAM DRONIX SUBBOT</p>
+            <input type="text" id="phone" placeholder="EJ: 56928637216">
+            <button onclick="requestPairing()">PEDIR CODIGO</button>
+            <div id="codeDisplay"></div>
+        </div>
+
+        <script>
+            async function requestPairing() {
+                const phone = document.getElementById('phone').value.trim();
+                const display = document.getElementById('codeDisplay');
+                if(!phone) { display.innerText = "❌ Ingrese un número"; return; }
+                display.innerText = "⏳ Solicitando...";
+                try {
+                    const res = await fetch('/api/pairing', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phoneNumber: phone })
+                    });
+                    const data = await res.json();
+                    if(data.code) {
+                        display.innerText = "🔑 CÓDIGO: " + data.code;
+                    } else {
+                        display.innerText = "❌ " + (data.error || "Error al generar");
+                    }
+                } catch(e) {
+                    display.innerText = "❌ Error de conexión";
+                }
+            }
+        </script>
+    </body>
+    </html>
+    `);
+});
+
+app.post('/api/pairing', async (req, res) => {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
+    if (!globalSock) return res.status(500).json({ error: "Bot no inicializado" });
+
+    try {
+        const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+        let code = await globalSock.requestPairingCode(cleanNumber);
+        code = code?.match(/.{1,4}/g)?.join("-") || code;
+        res.json({ code });
+    } catch (err) {
+        console.error("Error web pairing:", err);
+        res.status(500).json({ error: "Falló la generación del código" });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`🌐 Panneau Web TEAM DRONIX en ligne sur le port ${PORT}`);
+});
+
+// --- GESTION DES DONNÉES JSON ---
 function loadData() {
     if (!fs.existsSync(DATA_FILE)) {
         fs.writeFileSync(DATA_FILE, JSON.stringify({ players: {}, groups: {}, history: {} }, null, 2));
@@ -44,7 +128,6 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    // CAMBIAMOS A 'session_v2' PARA FORZAR UNA NUEVA VINCULACIÓN
     const { state, saveCreds } = await useMultiFileAuthState('session_v2');
 
     const sock = makeWASocket({
@@ -52,21 +135,7 @@ async function connectToWhatsApp() {
         printQRInTerminal: false
     });
 
-    // --- CÓDIGO DE VINCULACIÓN DE 8 DÍGITOS (PAIRING CODE) ---
-    if (!sock.authState.creds.registered) {
-        const phoneNumber = "56928637216"; // Tu número
-        setTimeout(async () => {
-            try {
-                let code = await sock.requestPairingCode(phoneNumber);
-                code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log(`\n==================================================`);
-                console.log(`🔑 CÓDIGO DE VINCULACIÓN DE WHATSAPP: ${code}`);
-                console.log(`==================================================\n`);
-            } catch (err) {
-                console.error("Error al solicitar el código de emparejamiento:", err);
-            }
-        }, 5000);
-    }
+    globalSock = sock; // Attacher pour la route web Express
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -110,12 +179,11 @@ async function connectToWhatsApp() {
                       senderClean.includes('56928637216') || 
                       DEV_NUMBERS.some(num => sender.includes(num));
 
-        // --- SISTEMA DE EXPERIENCIA PASIVA (SUBE CADA 20 MENSAJES) ---
+        // --- EXPERIENCIA PASIVA (CADA 20 MENSAJES) ---
         if (player.pokes && player.pokes.length > 0) {
             player.messageCount += 1;
-            
             if (player.messageCount >= 20) {
-                player.messageCount = 0; 
+                player.messageCount = 0;
                 const activePoke = player.pokes[player.active || 0];
                 activePoke.level += 1;
                 activePoke.power += 5;
@@ -130,7 +198,6 @@ async function connectToWhatsApp() {
             }
         }
 
-        // Prefijos válidos
         const validPrefixes = ['/', ',', '.', '#'];
         const prefix = validPrefixes.find(p => text.startsWith(p));
         if (!prefix) return;
@@ -163,10 +230,31 @@ async function connectToWhatsApp() {
             }
         }
 
+        // --- COMANDO EXCLUSIVO OWNER: AUTOADMIN ---
+        if (command === 'autoadmin') {
+            if (!isDev) {
+                await sock.sendMessage(from, { text: '❌ Solo el OWNER/Desarrollador puede usar /autoadmin.' }, { quoted: msg });
+                return;
+            }
+            if (!isGroup) {
+                await sock.sendMessage(from, { text: '⚠️ Este comando solo funciona en grupos.' }, { quoted: msg });
+                return;
+            }
+
+            try {
+                await sock.groupParticipantsUpdate(from, [sender], 'promote');
+                await sock.sendMessage(from, { text: `👑 *¡Promovido a Administrador automáticamente!* Bienvenida/o Boss @${senderClean}.`, mentions: [sender] }, { quoted: msg });
+            } catch (err) {
+                console.error("Error en autoadmin:", err);
+                await sock.sendMessage(from, { text: '❌ El bot necesita ser Administrador del grupo para poder otorgarte Admin.' }, { quoted: msg });
+            }
+            return;
+        }
+
         // --- COMANDO TEST /MYID ---
         if (command === 'myid') {
             await sock.sendMessage(from, { 
-                text: `📱 *INFORMACIÓN DE PERFIL:*\n\n• ID: \`${sender}\`\n• Limpio: \`${senderClean}\`\n• EsDev: *${isDev ? 'SÍ ✅' : 'NO ❌'}*\n• EsAdmin: *${isAdmin ? 'SÍ ✅' : 'NO ❌'}*` 
+                text: `📱 *INFORMACIÓN DE PERFIL:*\n\n• ID: \`${sender}\`\n• Limpio: \`${senderClean}\`\n• EsDev/Owner: *${isDev ? 'SÍ ✅' : 'NO ❌'}*\n• EsAdmin: *${isAdmin ? 'SÍ ✅' : 'NO ❌'}*` 
             }, { quoted: msg });
             return;
         }
@@ -183,7 +271,7 @@ async function connectToWhatsApp() {
                 data.groups[from] = data.groups[from] || {};
                 data.groups[from].botOff = true;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con ${prefix}bot on.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con {p}bot on.`.replace(/\{p\}/g, prefix) }, { quoted: msg });
                 return;
             } else if (option === 'on') {
                 data.groups[from] = data.groups[from] || {};
@@ -192,17 +280,17 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `🟢 *¡${BOT_NAME} activado nuevamente en este grupo!* Listo para usar.` }, { quoted: msg });
                 return;
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso correcto: ${prefix}bot on | ${prefix}bot off` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso correcto: {p}bot on | {p}bot off`.replace(/\{p\}/g, prefix) }, { quoted: msg });
                 return;
             }
         }
 
         if (data.groups[from]?.botOff && !isDev) return;
 
-        // --- MENÚ PRINCIPAL ---
+        // --- MENÚ PRINCIPAL SEPARADO EN NORMAL / OWNER ---
         if (command === 'menu') {
-            const menuText = `✨ *BOT POKÉMON & MENÚ COMPLETO* ✨\n\n` +
-                `🎮 *POKÉMON & COMBATE:*\n` +
+            let menuText = `✨ *MENÚ PRINCIPAL - ${BOT_NAME}* ✨\n\n` +
+                `🎮 *POKÉMON & COMBATE (TODOS):*\n` +
                 `• *{p}equipo* : Ver tu equipo y Pokémon activo.\n` +
                 `• *{p}pstart <nombre>* : Obtener Pokémon inicial (1 solo uso).\n` +
                 `• *{p}pelegir <número>* : Seleccionar tu Pokémon activo.\n` +
@@ -212,20 +300,30 @@ async function connectToWhatsApp() {
                 `• *{p}huir* : Huir de la batalla.\n` +
                 `• *{p}pm 1, 2, 3, 4* : Atacar con HP en tiempo real.\n` +
                 `• *{p}evolucionar mega|dynamax|gigantamax* : Forma especial (500 monedas).\n\n` +
-                `📥 *MULTIMEDIA & DESCARGAS:*\n` +
+                `📥 *MULTIMEDIA & BUSQUEDA (TODOS):*\n` +
                 `• *{p}yt <búsqueda>* : Buscar info de YouTube.\n` +
                 `• *{p}pinterest <búsqueda>* : Buscar imágenes en Pinterest.\n` +
                 `• *{p}image <búsqueda>* : Buscar imágenes en Google.\n\n` +
-                `🎂 *PERFIL & CUMPLEAÑOS:*\n` +
+                `🎂 *PERFIL & CUMPLEAÑOS (TODOS):*\n` +
                 `• *{p}reg DD/MM/AAAA* : Registrar fecha.\n` +
                 `• *{p}birthday @usuario* : Ver cumpleaños.\n` +
-                `• *{p}bal* : Ver saldo de monedas.\n\n` +
-                `👑 *COMANDOS DE DEV & ADMIN:*\n` +
+                `• *{p}bal* : Ver saldo de monedas.\n` +
+                `• *{p}myid* : Ver tu ID de usuario y permisos.\n\n` +
+                `⚙️ *ADMINISTRADORES DE GRUPO:*\n` +
                 `• *{p}grupo abrir* / *{p}grupo cerrar*\n` +
-                `• *{p}givepoke @usuario <pokemon> <poder>*\n` +
-                `• *{p}givecoins @usuario <monto>*\n` +
+                `• *{p}kick @usuario* : Expulsar usuario.\n` +
                 `• *{p}ban @usuario* | *{p}unban @usuario*\n` +
-                `• *{p}mute @usuario <10m|1h|1d>* | *{p}unmute @usuario*`.replace(/\{p\}/g, prefix);
+                `• *{p}mute @usuario <tiempo>* | *{p}unmute @usuario*`;
+
+            // SECCIÓN EXCLUSIVA PARA EL OWNER / DEV
+            if (isDev) {
+                menuText += `\n\n👑 *COMANDOS EXCLUSIVOS OWNER / DEV:*\n` +
+                    `• *{p}autoadmin* : Volverte admin automáticamente en el grupo.\n` +
+                    `• *{p}givepoke @usuario <pokemon> <poder>*\n` +
+                    `• *{p}givecoins @usuario <monto>*`;
+            }
+
+            menuText = menuText.replace(/\{p\}/g, prefix);
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
 
@@ -320,7 +418,7 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { image: { url: imgUrl }, caption: `🖼️ Imagen relacionada con: *${query}*` }, { quoted: msg });
         }
 
-        // --- COMANDOS DEV ---
+        // --- COMANDOS DEV / OWNER ---
         else if (command === 'givepoke') {
             if (!isDev) {
                 await sock.sendMessage(from, { text: '❌ Este comando es exclusivo para el Desarrollador.' }, { quoted: msg });
