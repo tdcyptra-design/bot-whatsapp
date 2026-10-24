@@ -37,7 +37,6 @@ function getPlayer(data, id) {
             mutedUntil: 0
         };
     }
-    // S'assurer que messageCount existe pour les anciens joueurs enregistrés
     if (data.players[id].messageCount === undefined) {
         data.players[id].messageCount = 0;
     }
@@ -52,9 +51,9 @@ async function connectToWhatsApp() {
         printQRInTerminal: false // Désactivé pour privilégier le pairing code sur Render
     });
 
-    // --- ASSOCIATION PAR CODE DE COUPLAGE (PAIRING CODE) POUR RENDER ---
+    // --- CÓDIGO DE VINCULACIÓN DE 8 DÍGITOS (PAIRING CODE) PARA RENDER ---
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "56928637216"; // Ton numéro de développeur
+        const phoneNumber = "56928637216"; // Tu número de desarrollador
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -65,7 +64,7 @@ async function connectToWhatsApp() {
             } catch (err) {
                 console.error("Error al solicitar el código de emparejamiento:", err);
             }
-        }, 4000);
+        }, 5000);
     }
 
     sock.ev.on('creds.update', saveCreds);
