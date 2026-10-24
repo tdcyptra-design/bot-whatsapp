@@ -163,8 +163,8 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    // USAMOS session_v4 PARA USAR LA SESIÓN GUARDADA
-    const { state, saveCreds } = await useMultiFileAuthState('session_v4');
+    // USAMOS session_v6 PARA UNA CONEXIÓN LIMPIA Y ESTABLE
+    const { state, saveCreds } = await useMultiFileAuthState('session_v6');
 
     const sock = makeWASocket({
         auth: state,
@@ -191,7 +191,7 @@ async function connectToWhatsApp() {
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente à WhatsApp!');
+            console.log('¡Bot conectado correctamente a WhatsApp!');
         }
     });
 
