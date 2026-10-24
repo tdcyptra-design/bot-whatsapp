@@ -114,17 +114,24 @@ app.get('/', (req, res) => {
 app.post('/api/pairing', async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
-    if (!globalSock) return res.status(500).json({ error: "Bot no inicializado aún" });
+    
+    // Esperar a que el bot inicialice el socket global si aún se está conectando
+    let retries = 10;
+    while (!globalSock && retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        retries--;
+    }
+
+    if (!globalSock) return res.status(500).json({ error: "Bot cargando, intenta de nuevo en unos segundos" });
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        await new Promise(resolve => setTimeout(resolve, 2000));
         let code = await globalSock.requestPairingCode(cleanNumber);
         code = code?.match(/.{1,4}/g)?.join("-") || code;
         res.json({ code });
     } catch (err) {
         console.error("Error web pairing:", err);
-        res.status(500).json({ error: "Falló la generación del código" });
+        res.status(500).json({ error: "Fallo al generar el código" });
     }
 });
 
