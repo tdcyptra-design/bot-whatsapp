@@ -187,7 +187,9 @@ async function connectToWhatsApp() {
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
             console.log('Conexión cerrada. Reconectando...', shouldReconnect);
-            if (shouldReconnect) connectToWhatsApp();
+            if (shouldReconnect) {
+                setTimeout(() => connectToWhatsApp(), 3000); // Reconexión automática estable de 3s
+            }
         } else if (connection === 'open') {
             console.log('¡Bot conectado correctamente a WhatsApp!');
         }
@@ -326,7 +328,7 @@ async function connectToWhatsApp() {
 
         if (data.groups[from]?.botOff && !isDev) return;
 
-        // --- MENÚ PRINCIPAL CON NUEVAS CATEGORÍAS Y COMANDOS EN ESPAÑOL ---
+        // --- MENÚ PRINCIPAL ---
         if (command === 'menu') {
             let menuText = `✨ *MENÚ PRINCIPAL - ${BOT_NAME}* ✨\n\n` +
                 `🎮 *POKÉMON & COMBATE:*\n` +
@@ -371,7 +373,7 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
 
-        // --- NUEVOS COMANDOS FUN (DIVERSIÓN) ---
+        // --- COMANDOS FUN ---
         else if (command === 'chiste') {
             const chistes = [
                 "¿Qué hace una abeja en el gimnasio? ¡Zumba!",
@@ -385,7 +387,7 @@ async function connectToWhatsApp() {
 
         else if (command === 'piropo') {
             const piropos = [
-                "Si la belleza fuera pecado, tú estarías sin perdóng.",
+                "Si la belleza fuera pecado, tú estarías sin perdón.",
                 "¿Crees en el amor a primera vista o tengo que pasar por aquí otra vez?",
                 "Eres como el Google: tienes todo lo que estoy buscando."
             ];
@@ -402,7 +404,7 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `🏳️‍🌈 Según mi escáner, @${targetClean} tiene un ${porcentaje}% de locura y diversión hoy.`, mentions: [target] }, { quoted: msg });
         }
 
-        // --- NUEVOS COMANDOS ADMIN ---
+        // --- COMANDOS ADMIN ---
         else if (command === 'falsomsg') {
             if (!isAdmin) {
                 await sock.sendMessage(from, { text: '❌ Solo los administradores pueden usar este comando.' }, { quoted: msg });
@@ -416,7 +418,7 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: fakeText });
         }
 
-        // --- NUEVOS COMANDOS MULTIMEDIA ---
+        // --- COMANDOS MULTIMEDIA ---
         else if (command === 'clima') {
             const ciudad = args.slice(1).join(' ');
             if (!ciudad) {
@@ -426,17 +428,17 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `🌤️ Consultando el clima para *${ciudad}*...\n🔗 Puedes revisarlo en: https://wttr.in/${encodeURIComponent(ciudad)}?lang=es` }, { quoted: msg });
         }
 
-        // --- NUEVOS COMANDOS OWNER / DEV ---
+        // --- COMANDOS OWNER / DEV ---
         else if (command === 'reiniciar') {
             if (!isDev) {
                 await sock.sendMessage(from, { text: '❌ Comando exclusivo para el Desarrollador.' }, { quoted: msg });
                 return;
             }
-            await sock.sendMessage(from, { text: '🔄 Reiniciando el sistema de ${BOT_NAME}...' });
+            await sock.sendMessage(from, { text: `🔄 Reiniciando el sistema de ${BOT_NAME}...` });
             process.exit(0);
         }
 
-        // --- COMANDOS EXISTENTE POKÉMON & RESTO ---
+        // --- RESTO DE COMANDOS POKÉMON & GESTIÓN ---
         else if (command === 'pstart') {
             if (player.hasStarted && !isDev) {
                 await sock.sendMessage(from, { text: `❌ Ya usaste tu ${prefix}pstart inicial.` }, { quoted: msg });
