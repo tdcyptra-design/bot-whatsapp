@@ -19,6 +19,11 @@ let globalSock = null;
 // Objet pour stocker l'historique anti-spam des utilisateurs
 const userSpamTracker = {};
 
+// --- ROUTE DE PING POUR UPTIMEROBOT ---
+app.get('/ping', (req, res) => {
+    res.status(200).send('🏓 PONG! Bot activo.');
+});
+
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -78,7 +83,7 @@ app.get('/', (req, res) => {
                 let h = Math.floor(seconds / 3600).toString().padStart(2, '0');
                 let m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
                 let s = (seconds % 60).toString().padStart(2, '0');
-                document.getElementById('uptime').innerText = \`\${h}:\${m}:\${s}\`;
+                document.getElementById('uptime').innerText = `${h}:${m}:${s}`;
             }, 1000);
 
             async function requestPairing() {
@@ -181,7 +186,7 @@ async function connectToWhatsApp() {
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente a WhatsApp!');
+            console.log('¡Bot conectado correctamente à WhatsApp!');
         }
     });
 
