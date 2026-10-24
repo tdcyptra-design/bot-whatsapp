@@ -74,7 +74,6 @@ app.get('/', (req, res) => {
         </div>
 
         <script>
-            // Compteur de temps en ligne simple
             let seconds = 0;
             setInterval(() => {
                 seconds++;
@@ -168,14 +167,15 @@ function getPlayer(data, id) {
 }
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_v2');
+    // Utilisation de session_v3 pour forcer une session propre et éviter les conflits
+    const { state, saveCreds } = await useMultiFileAuthState('session_v3');
 
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false
     });
 
-    globalSock = sock; // Attacher pour la route web Express
+    globalSock = sock;
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -190,7 +190,7 @@ async function connectToWhatsApp() {
             console.log('Conexión cerrada. Reconectando...', shouldReconnect);
             if (shouldReconnect) connectToWhatsApp();
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente à WhatsApp!');
+            console.log('¡Bot conectado correctamente a WhatsApp!');
         }
     });
 
