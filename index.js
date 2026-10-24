@@ -158,7 +158,8 @@ async function connectToWhatsApp() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true
+        printQRInTerminal: true,
+        browser: ["Ubuntu", "Chrome", "22.04.4"]
     });
 
     globalSock = sock;
@@ -225,12 +226,12 @@ async function connectToWhatsApp() {
             if (!userSpamTracker[senderClean]) {
                 userSpamTracker[senderClean] = { count: 1, lastTime: now };
             } else {
-                if (now - userSpamTracker[senderClean].lastTime < 5000) { // Intervalo de 5 segundos
+                if (now - userSpamTracker[senderClean].lastTime < 5000) {
                     userSpamTracker[senderClean].count += 1;
-                    if (userSpamTracker[senderClean].count > 5) { // Más de 5 mensajes seguidos rápido
+                    if (userSpamTracker[senderClean].count > 5) {
                         userSpamTracker[senderClean].count = 0;
                         await sock.sendMessage(from, { text: `⚠️ 🔕 @${senderClean}, por favor evita hacer spam en el grupo.`, mentions: [sender] }, { quoted: msg });
-                        return; // Bloquea la ejecución de comandos para este mensaje de spam
+                        return;
                     }
                 } else {
                     userSpamTracker[senderClean] = { count: 1, lastTime: now };
