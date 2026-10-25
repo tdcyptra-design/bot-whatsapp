@@ -23,107 +23,59 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
-// --- PANEL WEB // MULTI-JEUX ARCADE HTML INTÉGRÉS ---
+// --- PANEL WEB AVEC VOTRE NOUVEAU FOND D'ÉCRAN & CODE DE PARRAINAGE/APPAIRAGE ---
 app.get('/', (req, res) => {
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TEAM DRONIX // Arcade & System Panel</title>
+    <title>TEAM DRONIX // Pairing Panel</title>
     <style>
-        body { background-color: #05070b; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; margin: 0; padding: 20px; }
-        .container { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 20px; }
-        .panel { background: #0b101b; border: 1px solid #ff0055; padding: 25px; border-radius: 12px; box-shadow: 0 0 25px rgba(255,0,85,0.15); text-align: center; }
-        h1 { color: #ff0055; margin-bottom: 5px; font-size: 24px; letter-spacing: 2px; }
-        .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; text-transform: uppercase; }
-        input { width: 90%; padding: 12px; margin: 8px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 6px; text-align: center; font-size: 14px; outline: none; }
-        button { width: 98%; padding: 12px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 10px; text-transform: uppercase; }
-        button:hover { background: #ff0055; color: white; }
-        #codeDisplay { margin-top: 15px; font-size: 18px; font-weight: bold; color: #ffff00; word-break: break-all; }
-        .arcade { margin-top: 20px; border-top: 1px dashed #1a233a; padding-top: 15px; text-align: left; }
-        .game-box { background: #05070b; border: 1px solid #00ffcc; padding: 12px; border-radius: 8px; margin-top: 12px; text-align: center; }
+        body { 
+            background: linear-gradient(rgba(5, 7, 11, 0.85), rgba(5, 7, 11, 0.92)), url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
+            background-size: cover;
+            color: #00ffcc; 
+            font-family: monospace; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        .container { width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; }
+        .panel { 
+            background: rgba(11, 16, 27, 0.85); 
+            border: 1px solid #ff0055; 
+            padding: 30px; 
+            border-radius: 16px; 
+            box-shadow: 0 0 30px rgba(255,0,85,0.25); 
+            text-align: center; 
+            width: 100%;
+            backdrop-filter: blur(8px);
+        }
+        h1 { color: #ff0055; margin-bottom: 5px; font-size: 26px; letter-spacing: 2px; }
+        .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 25px; text-transform: uppercase; }
+        input { width: 90%; padding: 14px; margin: 10px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 8px; text-align: center; font-size: 16px; outline: none; }
+        input:focus { border-color: #ff0055; box-shadow: 0 0 10px rgba(255,0,85,0.3); }
+        button { width: 98%; padding: 14px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; transition: all 0.3s ease; }
+        button:hover { background: #ff0055; color: white; box-shadow: 0 0 15px rgba(255,0,85,0.5); }
+        #codeDisplay { margin-top: 25px; font-size: 24px; font-weight: bold; color: #ffff00; word-break: break-all; text-shadow: 0 0 10px rgba(255,255,0,0.3); }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="panel">
             <h1>TEAM DRONIX</h1>
-            <div class="subtitle">System Pairing & Arcade Panel</div>
+            <div class="subtitle">Panel de Emparejamiento por Código</div>
             <input type="text" id="phone" placeholder="EJ: 56928637216">
-            <button onclick="requestPairing()">PEDIR CODIGO</button>
+            <button onclick="requestPairing()">OBTENER CÓDIGO</button>
             <div id="codeDisplay"></div>
-            
-            <div class="arcade">
-                <div class="subtitle" style="text-align:center; margin-bottom:10px;">🎮 Mini-Jeux Arcade HTML5</div>
-                
-                <!-- Jeu 1 : Clicker -->
-                <div class="game-box">
-                    <div style="font-size:14px; margin-bottom:5px; color:#ff0055;">🪙 Nugget Clicker</div>
-                    <button onclick="playClicker()">CLIQUER (+15 Nuggets)</button>
-                    <div id="clickerScore" style="margin-top:8px; color:#fff;">Score : 0 nuggets</div>
-                </div>
-
-                <!-- Jeu 2 : Deviner le nombre -->
-                <div class="game-box">
-                    <div style="font-size:14px; margin-bottom:5px; color:#ff0055;">🎯 Devine le nombre (1 à 10)</div>
-                    <input type="number" id="guessInput" min="1" max="10" placeholder="Votre nombre (1-10)">
-                    <button onclick="playGuessGame()">Tenter sa chance</button>
-                    <div id="guessResult" style="margin-top:8px; color:#ffff00;">Faites un essai !</div>
-                </div>
-
-                <!-- Jeu 3 : Pierre Papier Ciseaux -->
-                <div class="game-box">
-                    <div style="font-size:14px; margin-bottom:5px; color:#ff0055;">✂️ Pierre - Papier - Ciseaux</div>
-                    <button onclick="playRPS('pierre')" style="width:30%; display:inline-block; font-size:12px;">Pierre</button>
-                    <button onclick="playRPS('papier')" style="width:30%; display:inline-block; font-size:12px;">Papier</button>
-                    <button onclick="playRPS('ciseaux')" style="width:30%; display:inline-block; font-size:12px;">Ciseaux</button>
-                    <div id="rpsResult" style="margin-top:8px; color:#00ffcc;">Choisissez une option !</div>
-                </div>
-            </div>
         </div>
     </div>
     <script>
-        let score = 0;
-        function playClicker() {
-            score += 15;
-            document.getElementById('clickerScore').innerText = "Score : " + score + " nuggets";
-        }
-
-        function playGuessGame() {
-            const val = parseInt(document.getElementById('guessInput').value);
-            const secret = Math.floor(Math.random() * 10) + 1;
-            const res = document.getElementById('guessResult');
-            if(isNaN(val) || val < 1 || val > 10) {
-                res.innerText = "❌ Entrez un nombre entre 1 et 10 !";
-                return;
-            }
-            if(val === secret) {
-                res.innerText = "🎉 Gagné ! C'était bien " + secret;
-            } else {
-                res.innerText = "❌ Raté ! C'était " + secret + ".";
-            }
-        }
-
-        function playRPS(playerChoice) {
-            const choices = ['pierre', 'papier', 'ciseaux'];
-            const botChoice = choices[Math.floor(Math.random() * choices.length)];
-            const res = document.getElementById('rpsResult');
-            let msg = "Bot a choisi " + botChoice.toUpperCase() + " -> ";
-            if(playerChoice === botChoice) {
-                msg += "🤝 Égalité !";
-            } else if(
-                (playerChoice === 'pierre' && botChoice === 'ciseaux') ||
-                (playerChoice === 'papier' && botChoice === 'pierre') ||
-                (playerChoice === 'ciseaux' && botChoice === 'papier')
-            ) {
-                msg += "🎉 Vous gagnez !";
-            } else {
-                msg += "😢 Vous perdez !";
-            }
-            res.innerText = msg;
-        }
-
         async function requestPairing() {
             const phone = document.getElementById('phone').value.trim();
             const display = document.getElementById('codeDisplay');
@@ -276,7 +228,7 @@ function setupEvents(sock) {
             if (anu.action === 'add') {
                 for (let num of anu.participants) {
                     const cleanNum = num.replace(/[^0-9]/g, '');
-                    const welcomeText = groupConfig.customWelcome || `👋 ¡Bienvenido/a @${cleanNum} a *${groupName}*!\n\nDisfruta del grupo y diviértete con los minijuegos de ${BOT_NAME}. ✨`;
+                    const welcomeText = groupConfig.customWelcome || `👋 ¡Bienvenido/a @${cleanNum} a *${groupName}*!\n\nDisfruta del grupo y diviértete con los minijuegos interactivos de ${BOT_NAME}. ✨`;
                     await sock.sendMessage(anu.id, { text: welcomeText, mentions: [num] });
                 }
             }
@@ -575,14 +527,14 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 📋 MENU MIS À JOUR AVEC NOUVELLES CATÉGORIES
+        // 📋 MENU COMPLET
         // ==========================================
         if (command === 'menu' || command === 'help' || command === 'allmenu') {
             let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos. (˶ᵔ ᵕ ᵔ˶)\n\n` +
                 `╭┈ࠢ͜┅ࠦ͜͜╾݊͜─ؕ͜─ׄ͜─֬͜─֟͜─֫͜─ׄ͜─ؕ͜─݊͜┈ࠦ͜┅ࠡ͜͜┈࠭͜͜۰۰͜۰\n` +
                 `│</> *ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ ::* Oculto\n` +
                 `│❒ *ᴛɪᴘᴏ ::* Owner / Multi-Session\n` +
-                `│☕︎ *ᴠᴇʀsɪóɴ ::* Bêta Arcade Max\n` +
+                `│☕︎ *ᴠᴇʀsɪóɴ ::* WhatsApp Arcade Ultimate\n` +
                 `╰ׅ┈ࠢ͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜╴ ⋱࣭ ᩴ  ⋮֔   ᩴ ⋰╶͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜┈ࠢ͜╯ׅ\n\n` +
                 `🐾 *POKÉMON:* \`${prefix}pokemenu\`, \`{p}pstart <poke>\`, \`{p}equipo\`, \`{p}pselect <num>\`, \`{p}buycandy\`, \`{p}ptransform\`, \`{p}pcombatir\`, \`{p}catch\`\n` +
                 `🐉 *DBZ:* \`{p}dbzmenu\`, \`{p}dbzequipo\`, \`{p}dcombatir @user\`, \`{p}zm <1-4>\`, \`{p}reclutardbz\`\n` +
@@ -591,7 +543,7 @@ function setupEvents(sock) {
                 `🎁 *GACHA:* \`{p}roll\`, \`{p}claim\`, \`{p}harem\`\n` +
                 `📥 *MEDIAS:* \`{p}youtube\`, \`{p}pinterest\`, \`{p}image\`, \`{p}bratv\`\n` +
                 `✨ *STICKERS:* \`{p}s\`, \`{p}brat\`\n` +
-                `🎮 *JUEGOS ARCADE:* \`{p}adivinar\`, \`{p}ppt <opción>\`, \`{p}slot\`, \`{p}dados\`\n` +
+                `🎮 *JUEGOS ARCADE & INTERACTIVOS:* \`{p}adivinar <1-10>\`, \`{p}ppt <piedra|papel|tijera>\`, \`{p}slot\`, \`{p}dados\`, \`{p}coinflip <cara|cruz>\`, \`{p}loterie\`\n` +
                 `🛠️ *UTILIDADES & TOOLS:* \`{p}ping\`, \`{p}clima <ciudad>\`, \`{p}calcular <expr>\`, \`{p}traducir <texto>\`\n` +
                 `👥 *ADMIN:* \`{p}kick\`, \`{p}warn\`, \`{p}hidetag\`, \`{p}bot on/off\`\n` +
                 `👑 *OWNER COMMANDS:* \`{p}givecoins <monto>\`, \`{p}givepoke <nombre>\`, \`{p}givedbz <nombre>\`, \`{p}giveopm <nombre>\`, \`{p}givewaifu <nombre>\``;
@@ -827,7 +779,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 📥 COMMANDES MÉDIAS & UTILITAIRES / JEUX
+        // 📥 COMMANDES MÉDIAS & JEUX INTERACTIFS
         // ==========================================
         else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
@@ -960,6 +912,40 @@ function setupEvents(sock) {
             const dado2 = Math.floor(Math.random() * 6) + 1;
             const total = dado1 + dado2;
             await sock.sendMessage(from, { text: `🎲 *LANZAMIENTO DE DADOS*\n\n• Dado 1: [${dado1}]\n• Dado 2: [${dado2}]\n• Total: *${total}*` }, { quoted: msg });
+        }
+
+        else if (command === 'coinflip' || command === 'cf') {
+            const choice = args[1]?.toLowerCase();
+            if (choice !== 'cara' && choice !== 'cruz') {
+                return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}coinflip cara\` o \`${prefix}coinflip cruz\`` }, { quoted: msg });
+            }
+            const result = Math.random() < 0.5 ? 'cara' : 'cruz';
+            let resText = `🪙 La moneda cayó en: *${result.toUpperCase()}*\n`;
+            if (choice === result) {
+                player.money += 80;
+                saveData(data);
+                resText += `🎉 ¡Acertaste! Ganaste 80 coins.`;
+            } else {
+                resText += `😢 Fallaste tu apuesta.`;
+            }
+            await sock.sendMessage(from, { text: resText }, { quoted: msg });
+        }
+
+        else if (command === 'loterie' || command === 'lotto') {
+            const winNum = Math.floor(Math.random() * 5) + 1;
+            const userNum = parseInt(args[1]);
+            if (isNaN(userNum) || userNum < 1 || userNum > 5) {
+                return sock.sendMessage(from, { text: `⚠️ Participa en la lotería eligiendo un número del 1 al 5 (Ej: \`${prefix}loterie 3\`).` }, { quoted: msg });
+            }
+            let lottoText = `🎟️ *SORTEO DE LOTERÍA*\n\nTu número: ${userNum}\nNúmero ganador: ${winNum}\n\n`;
+            if (userNum === winNum) {
+                player.money += 1000;
+                saveData(data);
+                lottoText += `🏆 ¡JACKPOT DE LOTERÍA! ¡Has ganado 1000 coins! 🎉`;
+            } else {
+                lottoText += `❌ Esta vez no ganaste nada. ¡Sigue intentando!`;
+            }
+            await sock.sendMessage(from, { text: lottoText, mentions: [sender] }, { quoted: msg });
         }
 
     });
