@@ -345,7 +345,8 @@ async function connectToWhatsApp() {
                 `🎮 *POKÉMON & JUEGOS:* \`{p}equipo\`, \`{p}pstart <nombre>\`, \`{p}pelegir <num>\`, \`{p}buycandy\`, \`{p}pcombatir @usuario\`, \`{p}paceptar\`, \`{p}huir\`, \`{p}pm <1-4>\`, \`{p}mega|dynamax|gigantamax\`, \`{p}adivina\`, \`{p}gato @usuario\`\n\n` +
                 `🕹️ *JUEGOS HTML:* \`{p}juegos\`, \`{p}tetris\`, \`{p}2048\`, \`{p}snake\`, \`{p}memoria\`, \`{p}ppt\`, \`{p}buscaminas\`, \`{p}flappy\`, \`{p}conecta4\`\n\n` +
                 `📥 *UTILS:* \`{p}youtube <busq>\` (MP3), \`{p}pin <busq>\` (foto), \`{p}pin <busq> x3\`, \`{p}image <busq>\`, \`{p}clima <ciudad>\`, \`{p}bal\`\n\n` +
-                `⚙️ *ADMIN & MOD:* \`{p}kick @user\`, \`{p}ban @user\`, \`{p}warn @user\`, \`{p}infractions @user\`, \`{p}mute @user 10m\`, \`{p}unmute @user\`, \`{p}lock\`, \`{p}unlock\`, \`{p}purge\``;
+                `⚙️ *ADMIN & MOD:* \`{p}kick @user\`, \`{p}ban @user\`, \`{p}warn @user\`, \`{p}infractions @user\`, \`{p}mute @user 10m\`, \`{p}unmute @user\`, \`{p}lock\`, \`{p}unlock\`\n\n` +
+                `👑 *OWNER:* \`{p}givepoke @user <nombre> <poder>\`, \`{p}givecoins @user <cant>\`, \`{p}reiniciar\``;
             menuText = menuText.replace(/\{p\}/g, prefix);
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
@@ -663,7 +664,7 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `🎮 *Gato*\n\n${boardText}\n\n👉 Turno de @${game.turn}`, mentions: [`${game.turn}@s.whatsapp.net`] });
         }
 
-        // MUTE ET MODERATION ET NOUVELLES COMMANDES ADMIN
+        // MUTE ET MODERATION ET COMMANDES ADMIN
         else if (command === 'mute') {
             if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
@@ -783,14 +784,15 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `💰 Tienes *${player.money} monedas*.` }, { quoted: msg });
         }
 
-        // OWNER
+        // OWNER COMMANDS
         else if (command === 'givepoke' && isDev) {
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
             const pokeName = args[1]?.toLowerCase();
             const power = parseInt(args[args.length - 1]) || 100;
-            if (!pokeName) return;
+            if (!pokeName) return sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}givepoke @usuario <pokemon> <poder>` }, { quoted: msg });
             const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).pokes.push({ name: pokeName, level: 50, xp: 0, power: power, form: 'normal', image: '' });
+            const pokeImg = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokeName}.png`;
+            getPlayer(data, targetClean).pokes.push({ name: pokeName, level: 50, xp: 0, power: power, form: 'normal', image: pokeImg });
             saveData(data);
             await sock.sendMessage(from, { text: `🎁 Pokémon *${pokeName.toUpperCase()}* regalado a @${targetClean}.`, mentions: [target] }, { quoted: msg });
         }
@@ -798,7 +800,7 @@ async function connectToWhatsApp() {
         else if (command === 'givecoins' && isDev) {
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
             const amount = parseInt(args[args.length - 1]);
-            if (isNaN(amount)) return;
+            if (isNaN(amount)) return sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}givecoins @usuario <cantidad>` }, { quoted: msg });
             const targetClean = target.replace(/[^0-9]/g, '');
             getPlayer(data, targetClean).money += amount;
             saveData(data);
