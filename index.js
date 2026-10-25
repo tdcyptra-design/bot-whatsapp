@@ -23,36 +23,107 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
+// --- PANEL WEB // MULTI-JEUX ARCADE HTML INTÉGRÉS ---
 app.get('/', (req, res) => {
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TEAM DRONIX // System Panel</title>
+    <title>TEAM DRONIX // Arcade & System Panel</title>
     <style>
         body { background-color: #05070b; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; margin: 0; padding: 20px; }
-        .container { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 20px; }
+        .container { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 20px; }
         .panel { background: #0b101b; border: 1px solid #ff0055; padding: 25px; border-radius: 12px; box-shadow: 0 0 25px rgba(255,0,85,0.15); text-align: center; }
         h1 { color: #ff0055; margin-bottom: 5px; font-size: 24px; letter-spacing: 2px; }
         .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; text-transform: uppercase; }
-        input { width: 90%; padding: 14px; margin: 10px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 6px; text-align: center; font-size: 16px; outline: none; }
-        button { width: 98%; padding: 14px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; }
+        input { width: 90%; padding: 12px; margin: 8px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 6px; text-align: center; font-size: 14px; outline: none; }
+        button { width: 98%; padding: 12px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 10px; text-transform: uppercase; }
         button:hover { background: #ff0055; color: white; }
-        #codeDisplay { margin-top: 20px; font-size: 22px; font-weight: bold; color: #ffff00; word-break: break-all; }
+        #codeDisplay { margin-top: 15px; font-size: 18px; font-weight: bold; color: #ffff00; word-break: break-all; }
+        .arcade { margin-top: 20px; border-top: 1px dashed #1a233a; padding-top: 15px; text-align: left; }
+        .game-box { background: #05070b; border: 1px solid #00ffcc; padding: 12px; border-radius: 8px; margin-top: 12px; text-align: center; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="panel">
             <h1>TEAM DRONIX</h1>
-            <div class="subtitle">System Pairing Panel</div>
+            <div class="subtitle">System Pairing & Arcade Panel</div>
             <input type="text" id="phone" placeholder="EJ: 56928637216">
             <button onclick="requestPairing()">PEDIR CODIGO</button>
             <div id="codeDisplay"></div>
+            
+            <div class="arcade">
+                <div class="subtitle" style="text-align:center; margin-bottom:10px;">🎮 Mini-Jeux Arcade HTML5</div>
+                
+                <!-- Jeu 1 : Clicker -->
+                <div class="game-box">
+                    <div style="font-size:14px; margin-bottom:5px; color:#ff0055;">🪙 Nugget Clicker</div>
+                    <button onclick="playClicker()">CLIQUER (+15 Nuggets)</button>
+                    <div id="clickerScore" style="margin-top:8px; color:#fff;">Score : 0 nuggets</div>
+                </div>
+
+                <!-- Jeu 2 : Deviner le nombre -->
+                <div class="game-box">
+                    <div style="font-size:14px; margin-bottom:5px; color:#ff0055;">🎯 Devine le nombre (1 à 10)</div>
+                    <input type="number" id="guessInput" min="1" max="10" placeholder="Votre nombre (1-10)">
+                    <button onclick="playGuessGame()">Tenter sa chance</button>
+                    <div id="guessResult" style="margin-top:8px; color:#ffff00;">Faites un essai !</div>
+                </div>
+
+                <!-- Jeu 3 : Pierre Papier Ciseaux -->
+                <div class="game-box">
+                    <div style="font-size:14px; margin-bottom:5px; color:#ff0055;">✂️ Pierre - Papier - Ciseaux</div>
+                    <button onclick="playRPS('pierre')" style="width:30%; display:inline-block; font-size:12px;">Pierre</button>
+                    <button onclick="playRPS('papier')" style="width:30%; display:inline-block; font-size:12px;">Papier</button>
+                    <button onclick="playRPS('ciseaux')" style="width:30%; display:inline-block; font-size:12px;">Ciseaux</button>
+                    <div id="rpsResult" style="margin-top:8px; color:#00ffcc;">Choisissez une option !</div>
+                </div>
+            </div>
         </div>
     </div>
     <script>
+        let score = 0;
+        function playClicker() {
+            score += 15;
+            document.getElementById('clickerScore').innerText = "Score : " + score + " nuggets";
+        }
+
+        function playGuessGame() {
+            const val = parseInt(document.getElementById('guessInput').value);
+            const secret = Math.floor(Math.random() * 10) + 1;
+            const res = document.getElementById('guessResult');
+            if(isNaN(val) || val < 1 || val > 10) {
+                res.innerText = "❌ Entrez un nombre entre 1 et 10 !";
+                return;
+            }
+            if(val === secret) {
+                res.innerText = "🎉 Gagné ! C'était bien " + secret;
+            } else {
+                res.innerText = "❌ Raté ! C'était " + secret + ".";
+            }
+        }
+
+        function playRPS(playerChoice) {
+            const choices = ['pierre', 'papier', 'ciseaux'];
+            const botChoice = choices[Math.floor(Math.random() * choices.length)];
+            const res = document.getElementById('rpsResult');
+            let msg = "Bot a choisi " + botChoice.toUpperCase() + " -> ";
+            if(playerChoice === botChoice) {
+                msg += "🤝 Égalité !";
+            } else if(
+                (playerChoice === 'pierre' && botChoice === 'ciseaux') ||
+                (playerChoice === 'papier' && botChoice === 'pierre') ||
+                (playerChoice === 'ciseaux' && botChoice === 'papier')
+            ) {
+                msg += "🎉 Vous gagnez !";
+            } else {
+                msg += "😢 Vous perdez !";
+            }
+            res.innerText = msg;
+        }
+
         async function requestPairing() {
             const phone = document.getElementById('phone').value.trim();
             const display = document.getElementById('codeDisplay');
@@ -344,9 +415,44 @@ function setupEvents(sock) {
         const command = args[0].toLowerCase();
 
         // ==========================================
-        // 🌿 CATCH / RECLUTAR
+        // 🌿 POKÉMON COMMANDES
         // ==========================================
-        if (command === 'catch' || command === 'atrapar') {
+        if (command === 'pstart' || command === 'starter') {
+            if (player.hasStarted) {
+                return sock.sendMessage(from, { text: `⚠️ ¡@${senderClean}, tú ya elegiste tu Pokémon inicial!`, mentions: [sender] }, { quoted: msg });
+            }
+            const starterName = args[1]?.toLowerCase();
+            const validStarters = ['charmander', 'bulbasaur', 'squirtle', 'pikachu'];
+            if (!validStarters.includes(starterName)) {
+                return sock.sendMessage(from, { text: `⚠️ Elige un Pokémon inicial válido:\n• \`${prefix}pstart charmander\`\n• \`${prefix}pstart bulbasaur\`\n• \`${prefix}pstart squirtle\`\n• \`${prefix}pstart pikachu\`` }, { quoted: msg });
+            }
+            player.hasStarted = true;
+            player.pokes = [{ name: starterName, level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
+            saveData(data);
+            await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}! Has elegido a *${starterName.toUpperCase()}* como tu compañero inicial.`, mentions: [sender] }, { quoted: msg });
+        }
+
+        else if (command === 'equipo' || command === 'team' || command === 'pequipo') {
+            let equipoText = `🎒 *EQUIPO POKÉMON DE @${senderClean}* 🎒\n\n`;
+            player.pokes.forEach((p, idx) => {
+                const activeMark = (idx === (player.activePoke || 0)) ? ' ⭐ (Activo)' : '';
+                equipoText += `• *[${idx + 1}]* ${p.name.toUpperCase()} - Nivel ${p.level} (Poder: ${p.power})${activeMark}\n`;
+            });
+            equipoText += `\nUsa \`${prefix}pselect <número>\` para cambiar tu Pokémon activo.`;
+            await sock.sendMessage(from, { text: equipoText, mentions: [sender] }, { quoted: msg });
+        }
+
+        else if (command === 'pselect' || command === 'changepoke') {
+            const index = parseInt(args[1]) - 1;
+            if (isNaN(index) || index < 0 || index >= player.pokes.length) {
+                return sock.sendMessage(from, { text: `⚠️ Número inválido. Revisa tu equipo con \`${prefix}equipo\`.` }, { quoted: msg });
+            }
+            player.activePoke = index;
+            saveData(data);
+            await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, mentions: [sender] }, { quoted: msg });
+        }
+
+        else if (command === 'catch' || command === 'atrapar') {
             const spawn = activeGroupSpawns[from];
             if (!spawn || spawn.type !== 'poke') return sock.sendMessage(from, { text: `❌ No hay ningún Pokémon salvaje para atrapar en este momento.` }, { quoted: msg });
             
@@ -394,7 +500,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 👑 COMMANDES OWNER EXCLUSIVES
+        // 👑 OWNER COMMANDS
         // ==========================================
         if (isOwner) {
             if (command === 'givecoins' || command === 'addcoins') {
@@ -469,24 +575,24 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 📋 MENU MIS À JOUR (AVEC TOUTES LES CATÉGORIES)
+        // 📋 MENU MIS À JOUR AVEC NOUVELLES CATÉGORIES
         // ==========================================
         if (command === 'menu' || command === 'help' || command === 'allmenu') {
-            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos mejorados. (˶ᵔ ᵕ ᵔ˶)\n\n` +
+            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos. (˶ᵔ ᵕ ᵔ˶)\n\n` +
                 `╭┈ࠢ͜┅ࠦ͜͜╾݊͜─ؕ͜─ׄ͜─֬͜─֟͜─֫͜─ׄ͜─ؕ͜─݊͜┈ࠦ͜┅ࠡ͜͜┈࠭͜͜۰۰͜۰\n` +
                 `│</> *ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ ::* Oculto\n` +
                 `│❒ *ᴛɪᴘᴏ ::* Owner / Multi-Session\n` +
-                `│☕︎ *ᴠᴇʀsɪóɴ ::* Bêta 2.0 Estable\n` +
+                `│☕︎ *ᴠᴇʀsɪóɴ ::* Bêta Arcade Max\n` +
                 `╰ׅ┈ࠢ͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜╴ ⋱࣭ ᩴ  ⋮֔   ᩴ ⋰╶͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜┈ࠢ͜╯ׅ\n\n` +
-                `🐾 *POKÉMON:* \`${prefix}pokemenu\`, \`{p}pstart\`, \`{p}equipo\`, \`{p}buycandy\`, \`{p}ptransform\`, \`{p}pcombatir\`, \`{p}catch\`\n` +
+                `🐾 *POKÉMON:* \`${prefix}pokemenu\`, \`{p}pstart <poke>\`, \`{p}equipo\`, \`{p}pselect <num>\`, \`{p}buycandy\`, \`{p}ptransform\`, \`{p}pcombatir\`, \`{p}catch\`\n` +
                 `🐉 *DBZ:* \`{p}dbzmenu\`, \`{p}dbzequipo\`, \`{p}dcombatir @user\`, \`{p}zm <1-4>\`, \`{p}reclutardbz\`\n` +
                 `👊 *ONE PUNCH MAN:* \`{p}opmmenu\`, \`{p}opmequipo\`, \`{p}evolu <1-3>\`, \`{p}opmcombatir @user\`, \`{p}om <1-4>\`, \`{p}reclutaropm\`\n` +
                 `💰 *ECONOMÍA:* \`{p}work\`, \`{p}bal\`, \`{p}ruleta\`, \`{p}crime\`, \`{p}robar\`\n` +
                 `🎁 *GACHA:* \`{p}roll\`, \`{p}claim\`, \`{p}harem\`\n` +
                 `📥 *MEDIAS:* \`{p}youtube\`, \`{p}pinterest\`, \`{p}image\`, \`{p}bratv\`\n` +
                 `✨ *STICKERS:* \`{p}s\`, \`{p}brat\`\n` +
-                `🎮 *JUEGOS EXTRA:* \`{p}adivinar\`, \`{p}ppt <piedra|papel|tijera>\`\n` +
-                `🛠️ *UTILIDADES:* \`{p}ping\`, \`{p}clima <ciudad>\`, \`{p}calcular <expr>\`\n` +
+                `🎮 *JUEGOS ARCADE:* \`{p}adivinar\`, \`{p}ppt <opción>\`, \`{p}slot\`, \`{p}dados\`\n` +
+                `🛠️ *UTILIDADES & TOOLS:* \`{p}ping\`, \`{p}clima <ciudad>\`, \`{p}calcular <expr>\`, \`{p}traducir <texto>\`\n` +
                 `👥 *ADMIN:* \`{p}kick\`, \`{p}warn\`, \`{p}hidetag\`, \`{p}bot on/off\`\n` +
                 `👑 *OWNER COMMANDS:* \`{p}givecoins <monto>\`, \`{p}givepoke <nombre>\`, \`{p}givedbz <nombre>\`, \`{p}giveopm <nombre>\`, \`{p}givewaifu <nombre>\``;
             
@@ -495,7 +601,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // ⚔️ COMBATS OPM / POKÉMON / DBZ
+        // ⚔️ COMBATS
         // ==========================================
         else if (command === 'opmcombatir' || command === 'opmbattle') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
@@ -528,7 +634,7 @@ function setupEvents(sock) {
             const battle = activeOpmBattles[from];
 
             if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
-                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla de OPM.`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla.`, mentions: [sender] }, { quoted: msg });
             }
 
             if (battle.turn !== senderClean) {
@@ -721,7 +827,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 📥 COMMANDES MÉDIAS & UTILITAIRES CORRIGÉES/AJOUTÉES
+        // 📥 COMMANDES MÉDIAS & UTILITAIRES / JEUX
         // ==========================================
         else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
@@ -752,7 +858,8 @@ function setupEvents(sock) {
         else if (command === 'pokemenu') {
             const pkMenu = `✨ *MENÚ DE POKÉMON* ✨\n\n` +
                            `• \`${prefix}pstart <nombre>\` - Starter inicial\n` +
-                           `• \`${prefix}equipo\` - Ver tus Pokémon\n` +
+                           `• \`${prefix}equipo\` - Ver tu equipo de Pokémon\n` +
+                           `• \`${prefix}pselect <num>\` - Seleccionar Pokémon activo\n` +
                            `• \`${prefix}buycandy <cant>\` - Comprar caramelos\n` +
                            `• \`${prefix}ptransform <mega|giga>\` - Transformación\n` +
                            `• \`${prefix}pcombatir @user\` - Combate\n` +
@@ -784,16 +891,15 @@ function setupEvents(sock) {
             }
         }
 
-        // --- NOUVELLES COMMANDES AJOUTÉES (SANS RIEN SUPPRIMER) ---
         else if (command === 'ping') {
-            await sock.sendMessage(from, { text: `🏓 Pong! El bot está activo y respondiendo al instante. Latencia: ~45ms` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🏓 Pong! El bot está activo y operativo.` }, { quoted: msg });
         }
 
         else if (command === 'ppt') {
             const choice = args[1]?.toLowerCase();
             const options = ['piedra', 'papel', 'tijera'];
             if (!options.includes(choice)) {
-                return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}ppt piedra\`, \`${prefix}ppt papel\` o \`${prefix}ppt tijera\`` }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}ppt piedra\`, \`${prefix}ppt papel\` o \`${prefix}ppt tijera\`` }, { quoted: msg });
             }
             const botChoice = options[Math.floor(Math.random() * options.length)];
             let resultText = `🤖 El bot eligió: *${botChoice.toUpperCase()}*\n`;
@@ -806,7 +912,7 @@ function setupEvents(sock) {
             ) {
                 player.money += 50;
                 saveData(data);
-                resultText += `🎉 ¡Has ganado! Recibiste $50 coins.`;
+                resultText += `🎉 ¡Has ganado 50 coins!`;
             } else {
                 resultText += `😢 ¡Has perdido contra el bot!`;
             }
@@ -822,10 +928,38 @@ function setupEvents(sock) {
             if (userGuess === targetNum) {
                 player.money += 150;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}, adivinaste el número oculto (${targetNum}) y ganaste $150 coins!`, mentions: [sender] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}, adivinaste el número oculto (${targetNum}) y ganaste 150 coins!`, mentions: [sender] }, { quoted: msg });
             } else {
                 await sock.sendMessage(from, { text: `❌ Fallaste. El número secreto era *${targetNum}*. ¡Inténtalo de nuevo!` }, { quoted: msg });
             }
+        }
+
+        else if (command === 'slot') {
+            const emojis = ['🍒', '🍋', '🔔', '⭐', '💎'];
+            const slot1 = emojis[Math.floor(Math.random() * emojis.length)];
+            const slot2 = emojis[Math.floor(Math.random() * emojis.length)];
+            const slot3 = emojis[Math.floor(Math.random() * emojis.length)];
+            
+            let slotText = `🎰 *TRAGAMONEDAS* 🎰\n\n[ ${slot1} | ${slot2} | ${slot3} ]\n\n`;
+            if (slot1 === slot2 && slot2 === slot3) {
+                player.money += 500;
+                saveData(data);
+                slotText += `🎉 ¡JACKPOT! Tres iguales. Ganaste 500 coins!`;
+            } else if (slot1 === slot2 || slot2 === slot3 || slot1 === slot3) {
+                player.money += 100;
+                saveData(data);
+                slotText += `✨ ¡Bien! Dos iguales. Ganaste 100 coins.`;
+            } else {
+                slotText += `😢 No hubo suerte. ¡Sigue intentando!`;
+            }
+            await sock.sendMessage(from, { text: slotText }, { quoted: msg });
+        }
+
+        else if (command === 'dados') {
+            const dado1 = Math.floor(Math.random() * 6) + 1;
+            const dado2 = Math.floor(Math.random() * 6) + 1;
+            const total = dado1 + dado2;
+            await sock.sendMessage(from, { text: `🎲 *LANZAMIENTO DE DADOS*\n\n• Dado 1: [${dado1}]\n• Dado 2: [${dado2}]\n• Total: *${total}*` }, { quoted: msg });
         }
 
     });
