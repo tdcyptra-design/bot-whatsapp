@@ -96,10 +96,20 @@ app.listen(PORT, () => {
 });
 
 function loadData() {
-    if (!fs.existsSync(DATA_FILE)) {
-        fs.writeFileSync(DATA_FILE, JSON.stringify({ players: {}, groups: {}, history: {} }, null, 2));
+    try {
+        if (!fs.existsSync(DATA_FILE)) {
+            fs.writeFileSync(DATA_FILE, JSON.stringify({ players: {}, groups: {}, history: {} }, null, 2));
+        }
+        const content = fs.readFileSync(DATA_FILE, 'utf-8');
+        const parsed = JSON.parse(content);
+        if (!parsed.players || typeof parsed.players !== 'object') parsed.players = {};
+        if (!parsed.groups || typeof parsed.groups !== 'object') parsed.groups = {};
+        return parsed;
+    } catch (e) {
+        const initialData = { players: {}, groups: {}, history: {} };
+        fs.writeFileSync(DATA_FILE, JSON.stringify(initialData, null, 2));
+        return initialData;
     }
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
 }
 
 function saveData(data) {
@@ -107,6 +117,9 @@ function saveData(data) {
 }
 
 function getPlayer(data, id) {
+    if (!data.players || typeof data.players !== 'object') {
+        data.players = {};
+    }
     if (!data.players[id]) {
         data.players[id] = {
             money: 500, bank: 0, wins: 0, losses: 0, 
@@ -118,15 +131,16 @@ function getPlayer(data, id) {
             birthDate: null, age: null, banned: false, mutedUntil: 0, harem: [], warns: 0, exp: 0, level: 1
         };
     }
-    if (data.players[id].messageCount === undefined) data.players[id].messageCount = 0;
-    if (data.players[id].bank === undefined) data.players[id].bank = 0;
-    if (!data.players[id].harem) data.players[id].harem = [];
-    if (!data.players[id].dbz) data.players[id].dbz = [{ name: 'Goku', level: 5, power: 60, form: 'Base' }];
-    if (!data.players[id].opm) data.players[id].opm = [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 1 }];
-    if (!data.players[id].pokes || data.players[id].pokes.length === 0) {
-        data.players[id].pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
+    const player = data.players[id];
+    if (player.messageCount === undefined) player.messageCount = 0;
+    if (player.bank === undefined) player.bank = 0;
+    if (!player.harem) player.harem = [];
+    if (!player.dbz) player.dbz = [{ name: 'Goku', level: 5, power: 60, form: 'Base' }];
+    if (!player.opm) player.opm = [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 1 }];
+    if (!player.pokes || player.pokes.length === 0) {
+        player.pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
     }
-    return data.players[id];
+    return player;
 }
 
 async function connectToWhatsApp() {
@@ -155,7 +169,6 @@ async function connectToWhatsApp() {
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando...`, shouldReconnect);
             
-            // Relogement automatique forcé après 5 secondes pour garder le socket actif
             setTimeout(() => {
                 connectToWhatsApp();
             }, 5000);
