@@ -23,19 +23,19 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
-// --- PANEL WEB AVEC VOTRE NOUVEAU FOND D'ÉCRAN & CODE DE PARRAINAGE/APPAIRAGE ---
+// --- PANEL WEB THÈME HALLOWEEN & CODE D'APPAIRAGE ---
 app.get('/', (req, res) => {
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TEAM DRONIX // Pairing Panel</title>
+    <title>TEAM DRONIX // Halloween Edition</title>
     <style>
         body { 
-            background: linear-gradient(rgba(5, 7, 11, 0.85), rgba(5, 7, 11, 0.92)), url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
+            background: linear-gradient(rgba(10, 5, 15, 0.9), rgba(5, 2, 8, 0.95)), url('https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
             background-size: cover;
-            color: #00ffcc; 
+            color: #ff7518; 
             font-family: monospace; 
             display: flex; 
             flex-direction: column; 
@@ -47,29 +47,29 @@ app.get('/', (req, res) => {
         }
         .container { width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; }
         .panel { 
-            background: rgba(11, 16, 27, 0.85); 
-            border: 1px solid #ff0055; 
+            background: rgba(18, 10, 25, 0.88); 
+            border: 2px solid #ff7518; 
             padding: 30px; 
             border-radius: 16px; 
-            box-shadow: 0 0 30px rgba(255,0,85,0.25); 
+            box-shadow: 0 0 35px rgba(255, 117, 24, 0.35); 
             text-align: center; 
             width: 100%;
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(10px);
         }
-        h1 { color: #ff0055; margin-bottom: 5px; font-size: 26px; letter-spacing: 2px; }
-        .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 25px; text-transform: uppercase; }
-        input { width: 90%; padding: 14px; margin: 10px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 8px; text-align: center; font-size: 16px; outline: none; }
-        input:focus { border-color: #ff0055; box-shadow: 0 0 10px rgba(255,0,85,0.3); }
-        button { width: 98%; padding: 14px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; transition: all 0.3s ease; }
-        button:hover { background: #ff0055; color: white; box-shadow: 0 0 15px rgba(255,0,85,0.5); }
-        #codeDisplay { margin-top: 25px; font-size: 24px; font-weight: bold; color: #ffff00; word-break: break-all; text-shadow: 0 0 10px rgba(255,255,0,0.3); }
+        h1 { color: #ff7518; margin-bottom: 5px; font-size: 28px; letter-spacing: 3px; text-shadow: 0 0 10px rgba(255,117,24,0.6); }
+        .subtitle { color: #b388ff; font-size: 12px; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; }
+        input { width: 90%; padding: 14px; margin: 10px 0; background: #08030f; border: 1px solid #4a154b; color: #ff7518; border-radius: 8px; text-align: center; font-size: 16px; outline: none; }
+        input:focus { border-color: #ff7518; box-shadow: 0 0 12px rgba(255,117,24,0.5); }
+        button { width: 98%; padding: 14px; background: #ff7518; border: none; color: #08030f; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; transition: all 0.3s ease; }
+        button:hover { background: #e05e0b; color: white; box-shadow: 0 0 20px rgba(255,117,24,0.8); }
+        #codeDisplay { margin-top: 25px; font-size: 24px; font-weight: bold; color: #00ffcc; word-break: break-all; text-shadow: 0 0 10px rgba(0,255,204,0.4); }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="panel">
-            <h1>TEAM DRONIX</h1>
-            <div class="subtitle">Panel de Emparejamiento por Código</div>
+            <h1>🎃 TEAM DRONIX 🦇</h1>
+            <div class="subtitle">Halloween Pairing Panel</div>
             <input type="text" id="phone" placeholder="EJ: 56928637216">
             <button onclick="requestPairing()">OBTENER CÓDIGO</button>
             <div id="codeDisplay"></div>
@@ -80,7 +80,7 @@ app.get('/', (req, res) => {
             const phone = document.getElementById('phone').value.trim();
             const display = document.getElementById('codeDisplay');
             if(!phone) { display.innerText = "❌ Ingrese un número"; return; }
-            display.innerText = "⏳ Solicitando...";
+            display.innerText = "⏳ Conjurando código...";
             try {
                 const res = await fetch('/api/pairing', {
                     method: 'POST',
@@ -192,10 +192,17 @@ async function startUserSession(cleanNumber) {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`[Session ${cleanNumber}] Conexión cerrada (${statusCode}). Reconectando...`, shouldReconnect);
-            if (shouldReconnect) {
+            
+            if (statusCode === 401) {
+                try { 
+                    fs.rmSync(sessionDir, { recursive: true, force: true }); 
+                    console.log(`[Session ${cleanNumber}] Sesión inválida borrada automáticamente.`);
+                } catch(e){}
+            }
+
+            if (shouldReconnect && statusCode !== 401) {
                 setTimeout(() => startUserSession(cleanNumber), 5000);
             } else {
-                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
                 delete activeSessions[cleanNumber];
             }
         } else if (connection === 'open') {
@@ -228,7 +235,7 @@ function setupEvents(sock) {
             if (anu.action === 'add') {
                 for (let num of anu.participants) {
                     const cleanNum = num.replace(/[^0-9]/g, '');
-                    const welcomeText = groupConfig.customWelcome || `👋 ¡Bienvenido/a @${cleanNum} a *${groupName}*!\n\nDisfruta del grupo y diviértete con los minijuegos interactivos de ${BOT_NAME}. ✨`;
+                    const welcomeText = groupConfig.customWelcome || `🎃 ¡Bienvenido/a @${cleanNum} a *${groupName}* en esta noche de brujas!\n\nDisfruta del grupo y diviértete con los minijuegos de ${BOT_NAME}. 🦇`;
                     await sock.sendMessage(anu.id, { text: welcomeText, mentions: [num] });
                 }
             }
@@ -278,7 +285,7 @@ function setupEvents(sock) {
                     userSpamTracker[senderClean].count += 1;
                     if (userSpamTracker[senderClean].count > 5) {
                         userSpamTracker[senderClean].count = 0;
-                        await sock.sendMessage(from, { text: `⚠️ 🔕 @${senderClean}, por favor evita hacer spam en el grupo.`, mentions: [sender] }, { quoted: msg });
+                        await sock.sendMessage(from, { text: `⚠️ 🦇 @${senderClean}, por favor evita hacer spam en el grupo.`, mentions: [sender] }, { quoted: msg });
                         return;
                     }
                 } else {
@@ -320,7 +327,7 @@ function setupEvents(sock) {
                     
                     await sock.sendMessage(from, { 
                         image: { url: poke.img }, 
-                        caption: `🌿 ¡Un *${poke.name.toUpperCase()}* Pokémon salvaje ha aparecido en el grupo!\nEscribe \`/catch\` o \`/atrapar\` para conseguirlo.` 
+                        caption: `🎃 ¡Un *${poke.name.toUpperCase()}* Pokémon salvaje ha aparecido en la oscuridad!\nEscribe \`/catch\` o \`/atrapar\` para conseguirlo.` 
                     });
 
                 } else if (chosenType === 'dbz') {
@@ -336,7 +343,7 @@ function setupEvents(sock) {
 
                     await sock.sendMessage(from, { 
                         image: { url: dbz.img }, 
-                        caption: `☄️ ¡Un guerrero Z (*${dbz.name.toUpperCase()}*) ha aparecido!\nEscribe \`/reclutardbz\` para agregarlo.` 
+                        caption: `🦇 ¡Un guerrero Z (*${dbz.name.toUpperCase()}*) espeluznante ha aparecido!\nEscribe \`/reclutardbz\` para agregarlo.` 
                     });
 
                 } else {
@@ -351,7 +358,7 @@ function setupEvents(sock) {
 
                     await sock.sendMessage(from, { 
                         image: { url: opm.img }, 
-                        caption: `👊 ¡Un héroe/villano de OPM (*${opm.name.toUpperCase()}*) ha aparecido!\nEscribe \`/reclutaropm\` para sumarlo.` 
+                        caption: `👻 ¡Un personaje de OPM (*${opm.name.toUpperCase()}*) fantasmagórico ha aparecido!\nEscribe \`/reclutaropm\` para sumarlo.` 
                     });
                 }
             }
@@ -530,12 +537,12 @@ function setupEvents(sock) {
         // 📋 MENU COMPLET
         // ==========================================
         if (command === 'menu' || command === 'help' || command === 'allmenu') {
-            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos. (˶ᵔ ᵕ ᵔ˶)\n\n` +
+            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos. 🎃\n\n` +
                 `╭┈ࠢ͜┅ࠦ͜͜╾݊͜─ؕ͜─ׄ͜─֬͜─֟͜─֫͜─ׄ͜─ؕ͜─݊͜┈ࠦ͜┅ࠡ͜͜┈࠭͜͜۰۰͜۰\n` +
                 `│</> *ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ ::* Oculto\n` +
                 `│❒ *ᴛɪᴘᴏ ::* Owner / Multi-Session\n` +
-                `│☕︎ *ᴠᴇʀsɪóɴ ::* WhatsApp Arcade Ultimate\n` +
-                `╰ׅ┈ࠢ͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜╴ ⋱࣭ ᩴ  ⋮֔   ᩴ ⋰╶͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜┈ࠢ͜╯ׅ\n\n` +
+                `│☕︎ *ᴠᴇʀsɪóɴ ::* Halloween Arcade Ultimate\n` +
+                `╰ׅ┈ࠢ͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜╴ ⋱࣭ ᩴ  ⋮֔   ᩴ ⋰╶͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜┈\n\n` +
                 `🐾 *POKÉMON:* \`${prefix}pokemenu\`, \`{p}pstart <poke>\`, \`{p}equipo\`, \`{p}pselect <num>\`, \`{p}buycandy\`, \`{p}ptransform\`, \`{p}pcombatir\`, \`{p}catch\`\n` +
                 `🐉 *DBZ:* \`{p}dbzmenu\`, \`{p}dbzequipo\`, \`{p}dcombatir @user\`, \`{p}zm <1-4>\`, \`{p}reclutardbz\`\n` +
                 `👊 *ONE PUNCH MAN:* \`{p}opmmenu\`, \`{p}opmequipo\`, \`{p}evolu <1-3>\`, \`{p}opmcombatir @user\`, \`{p}om <1-4>\`, \`{p}reclutaropm\`\n` +
@@ -573,7 +580,7 @@ function setupEvents(sock) {
                 turn: senderClean
             };
 
-            const battleText = `👊 *¡BATALLA ONE PUNCH MAN INICIADA!* 👊\n\n` +
+            const battleText = `🦇 *¡BATALLA ONE PUNCH MAN HALLOWEEN!* 🦇\n\n` +
                                `🔴 @${senderClean} (*${activeChar1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activeChar2.name.toUpperCase()}*)\n\n` +
                                `👉 Es el turno de @${senderClean}.\n` +
                                `Usa \`${prefix}om <1-4>\` para atacar.`;
@@ -621,7 +628,7 @@ function setupEvents(sock) {
             battle.turn = isP1 ? battle.p2.id : battle.p1.id;
 
             const moveName = attacker.moves[moveIndex];
-            let response = `💥 *${attacker.char.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño${isCritical ? ' 🎯 *(¡GOLPE CRÍTICO!)*' : ''}.\n\n`;
+            let response = `💥 *${attacker.char.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño${isCritical ? ' 🎯 *(¡GOLPE CRÍTICO TÉTRICO!)*' : ''}.\n\n`;
             response += `${battle.p1.char.name}: [${bar1}] ${battle.p1.hp}/${battle.p1.maxHp}\n`;
             response += `${battle.p2.char.name}: [${bar2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
 
@@ -653,7 +660,7 @@ function setupEvents(sock) {
                 turn: senderClean
             };
 
-            const battleText = `⚔️ *¡COMBATE POKÉMON INICIADO!* ⚔️\n\n` +
+            const battleText = `🎃 *¡COMBATE POKÉMON HALLOWEEN!* 🎃\n\n` +
                                `🔴 @${senderClean} (*${activePoke1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activePoke2.name.toUpperCase()}*)\n\n` +
                                `👉 Es el turno de @${senderClean}.\n` +
                                `Usa \`${prefix}pm <1-4>\` para atacar.`;
@@ -727,7 +734,7 @@ function setupEvents(sock) {
                 turn: senderClean
             };
 
-            const battleText = `☄️ *¡BATALLA Z INICIADA!* ☄️\n\n` +
+            const battleText = `👻 *¡BATALLA Z HALLOWEEN!* 👻\n\n` +
                                `🔴 @${senderClean} (*${activeChar1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activeChar2.name.toUpperCase()}*)\n\n` +
                                `👉 Es el turno de @${senderClean}.\n` +
                                `Usa \`${prefix}zm <1-4>\` para atacar.`;
@@ -823,7 +830,7 @@ function setupEvents(sock) {
             const earnings = Math.floor(Math.random() * 200) + 50;
             player.money += earnings;
             saveData(data);
-            await sock.sendMessage(from, { text: `💼 ¡Trabajaste duro y ganaste *$${earnings}* coins!` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🦇 ¡Trabajaste en la mansión embrujada y ganaste *$${earnings}* coins!` }, { quoted: msg });
         }
 
         else if (command === 'bal' || command === 'balance') {
@@ -844,7 +851,7 @@ function setupEvents(sock) {
         }
 
         else if (command === 'ping') {
-            await sock.sendMessage(from, { text: `🏓 Pong! El bot está activo y operativo.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🦇 ¡Pong! El bot fantasma está activo y operativo.` }, { quoted: msg });
         }
 
         else if (command === 'ppt') {
@@ -859,7 +866,7 @@ function setupEvents(sock) {
                 resultText += `🤝 ¡Empate!`;
             } else if (
                 (choice === 'piedra' && botChoice === 'tijera') ||
-                (choice === 'papel' && botChoice === 'piedra') ||
+                (choice === 'papier' && botChoice === 'piedra') ||
                 (choice === 'tijera' && botChoice === 'papel')
             ) {
                 player.money += 50;
@@ -887,22 +894,22 @@ function setupEvents(sock) {
         }
 
         else if (command === 'slot') {
-            const emojis = ['🍒', '🍋', '🔔', '⭐', '💎'];
+            const emojis = ['🎃', '🦇', '👻', '💀', '🍬'];
             const slot1 = emojis[Math.floor(Math.random() * emojis.length)];
             const slot2 = emojis[Math.floor(Math.random() * emojis.length)];
             const slot3 = emojis[Math.floor(Math.random() * emojis.length)];
             
-            let slotText = `🎰 *TRAGAMONEDAS* 🎰\n\n[ ${slot1} | ${slot2} | ${slot3} ]\n\n`;
+            let slotText = `🎰 *TRAGAMONEDAS HALLOWEEN* 🎰\n\n[ ${slot1} | ${slot2} | ${slot3} ]\n\n`;
             if (slot1 === slot2 && slot2 === slot3) {
                 player.money += 500;
                 saveData(data);
-                slotText += `🎉 ¡JACKPOT! Tres iguales. Ganaste 500 coins!`;
+                slotText += `🎃 ¡JACKPOT DE TERROR! Tres iguales. Ganaste 500 coins!`;
             } else if (slot1 === slot2 || slot2 === slot3 || slot1 === slot3) {
                 player.money += 100;
                 saveData(data);
                 slotText += `✨ ¡Bien! Dos iguales. Ganaste 100 coins.`;
             } else {
-                slotText += `😢 No hubo suerte. ¡Sigue intentando!`;
+                slotText += `😢 Los espíritus no te favorecieron. ¡Sigue intentando!`;
             }
             await sock.sendMessage(from, { text: slotText }, { quoted: msg });
         }
@@ -911,7 +918,7 @@ function setupEvents(sock) {
             const dado1 = Math.floor(Math.random() * 6) + 1;
             const dado2 = Math.floor(Math.random() * 6) + 1;
             const total = dado1 + dado2;
-            await sock.sendMessage(from, { text: `🎲 *LANZAMIENTO DE DADOS*\n\n• Dado 1: [${dado1}]\n• Dado 2: [${dado2}]\n• Total: *${total}*` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🎲 *LANZAMIENTO DE DADOS HALLOWEEN*\n\n• Calavera 1: [${dado1}]\n• Calavera 2: [${dado2}]\n• Total: *${total}*` }, { quoted: msg });
         }
 
         else if (command === 'coinflip' || command === 'cf') {
@@ -920,13 +927,13 @@ function setupEvents(sock) {
                 return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}coinflip cara\` o \`${prefix}coinflip cruz\`` }, { quoted: msg });
             }
             const result = Math.random() < 0.5 ? 'cara' : 'cruz';
-            let resText = `🪙 La moneda cayó en: *${result.toUpperCase()}*\n`;
+            let resText = `🪙 La moneda maldita cayó en: *${result.toUpperCase()}*\n`;
             if (choice === result) {
                 player.money += 80;
                 saveData(data);
                 resText += `🎉 ¡Acertaste! Ganaste 80 coins.`;
             } else {
-                resText += `😢 Fallaste tu apuesta.`;
+                resText += `😢 La maldición te alcanzó, fallaste.`;
             }
             await sock.sendMessage(from, { text: resText }, { quoted: msg });
         }
@@ -935,15 +942,15 @@ function setupEvents(sock) {
             const winNum = Math.floor(Math.random() * 5) + 1;
             const userNum = parseInt(args[1]);
             if (isNaN(userNum) || userNum < 1 || userNum > 5) {
-                return sock.sendMessage(from, { text: `⚠️ Participa en la lotería eligiendo un número del 1 al 5 (Ej: \`${prefix}loterie 3\`).` }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ Participa en la lotería de brujas eligiendo un número del 1 al 5 (Ej: \`${prefix}loterie 3\`).` }, { quoted: msg });
             }
-            let lottoText = `🎟️ *SORTEO DE LOTERÍA*\n\nTu número: ${userNum}\nNúmero ganador: ${winNum}\n\n`;
+            let lottoText = `🎟️ *SORTEO DE CALABAZAS*\n\nTu número: ${userNum}\nNúmero ganador: ${winNum}\n\n`;
             if (userNum === winNum) {
                 player.money += 1000;
                 saveData(data);
-                lottoText += `🏆 ¡JACKPOT DE LOTERÍA! ¡Has ganado 1000 coins! 🎉`;
+                lottoText += `🏆 ¡JACKPOT DE HALLOWEEN! ¡Has ganado 1000 coins! 🎉`;
             } else {
-                lottoText += `❌ Esta vez no ganaste nada. ¡Sigue intentando!`;
+                lottoText += `❌ Los fantasmas se llevaron tu premio. ¡Sigue intentando!`;
             }
             await sock.sendMessage(from, { text: lottoText, mentions: [sender] }, { quoted: msg });
         }
