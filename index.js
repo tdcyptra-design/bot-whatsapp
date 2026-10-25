@@ -151,9 +151,14 @@ async function connectToWhatsApp() {
             qrcode.generate(qr, { small: true });
         }
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log('Conexión cerrada. Reconectando...', shouldReconnect);
-            if (shouldReconnect) setTimeout(() => connectToWhatsApp(), 3000);
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando...`, shouldReconnect);
+            
+            // Relogement automatique forcé après 5 secondes pour garder le socket actif
+            setTimeout(() => {
+                connectToWhatsApp();
+            }, 5000);
         } else if (connection === 'open') {
             console.log('¡Bot conectado correctamente a WhatsApp!');
         }
