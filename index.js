@@ -1,25 +1,24 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs');
 const express = require('express');
+const pino = require('pino');
+const { initMongo, loadData, saveData } = require('./mongoSetup');
+const { useMongoAuthState } = require('./mongoAuth');
 
-const DATA_FILE = './data.json';
-
-// NÚMERO DEL DESARROLLADOR / OWNER
 const DEV_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
 const BOT_NAME = "TEAM DRONIX";
 
-// --- SERVEUR WEB EXPRESS POUR LE PANNEAU ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 let globalSock = null;
-
-// Objet pour stocker l'historique anti-spam des utilisateurs
 const userSpamTracker = {};
+const primaryBotInGroup = {};
+const activeTictactoe = {};
+const activeTrivia = {};
+const activeBattles = {};
 
-// --- ROUTE DE PING POUR UPTIMEROBOT ---
 app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
@@ -34,39 +33,17 @@ app.get('/', (req, res) => {
     <style>
         body { background-color: #05070b; color: #00ffcc; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh; margin: 0; padding: 20px; }
         .container { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 20px; }
-        .header-bar { display: flex; justify-content: space-between; align-items: center; background: #0b101b; border: 1px solid #1a233a; padding: 10px 15px; border-radius: 8px; font-size: 12px; }
-        .status-online { color: #00ffcc; display: flex; align-items: center; gap: 5px; }
-        .status-online::before { content: ''; width: 8px; height: 8px; background: #00ffcc; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00ffcc; }
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .stat-card { background: #0b101b; border: 1px solid #1a233a; padding: 15px; border-radius: 8px; text-align: center; }
-        .stat-title { font-size: 11px; color: #64748b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
-        .stat-value { font-size: 24px; font-weight: bold; color: #fff; }
         .panel { background: #0b101b; border: 1px solid #ff0055; padding: 25px; border-radius: 12px; box-shadow: 0 0 25px rgba(255,0,85,0.15); text-align: center; }
         h1 { color: #ff0055; margin-bottom: 5px; font-size: 24px; letter-spacing: 2px; }
         .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; text-transform: uppercase; }
-        input { width: 90%; padding: 14px; margin: 10px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 6px; text-align: center; font-size: 16px; outline: none; transition: 0.3s; }
-        input:focus { border-color: #ff0055; box-shadow: 0 0 10px rgba(255,0,85,0.3); }
-        button { width: 98%; padding: 14px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; }
-        button:hover { background: #ff0055; color: white; box-shadow: 0 0 15px rgba(255,0,85,0.5); }
+        input { width: 90%; padding: 14px; margin: 10px 0; background: #05070b; border: 1px solid #1a233a; color: #fff; border-radius: 6px; text-align: center; font-size: 16px; outline: none; }
+        button { width: 98%; padding: 14px; background: transparent; border: 1px solid #ff0055; color: #ff0055; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; }
+        button:hover { background: #ff0055; color: white; }
         #codeDisplay { margin-top: 20px; font-size: 22px; font-weight: bold; color: #ffff00; word-break: break-all; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header-bar">
-            <div class="status-online">SYS ONLINE</div>
-            <div id="uptime" style="color: #888;">00:00:00</div>
-        </div>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-title">BOTS CONECTADOS</div>
-                <div class="stat-value">1</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">ESTADO</div>
-                <div class="stat-value" style="font-size: 16px; color: #00ffcc; margin-top: 5px;">ACTIVO</div>
-            </div>
-        </div>
         <div class="panel">
             <h1>TEAM DRONIX</h1>
             <div class="subtitle">System Pairing Panel</div>
@@ -76,15 +53,6 @@ app.get('/', (req, res) => {
         </div>
     </div>
     <script>
-        let seconds = 0;
-        setInterval(() => {
-            seconds++;
-            let h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-            let m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-            let s = (seconds % 60).toString().padStart(2, '0');
-            document.getElementById('uptime').innerText = h + ':' + m + ':' + s;
-        }, 1000);
-
         async function requestPairing() {
             const phone = document.getElementById('phone').value.trim();
             const display = document.getElementById('codeDisplay');
@@ -97,14 +65,9 @@ app.get('/', (req, res) => {
                     body: JSON.stringify({ phoneNumber: phone })
                 });
                 const data = await res.json();
-                if(data.code) {
-                    display.innerText = "🔑 CÓDIGO: " + data.code;
-                } else {
-                    display.innerText = "❌ " + (data.error || "Error al generar");
-                }
-            } catch(e) {
-                display.innerText = "❌ Error de conexión";
-            }
+                if(data.code) { display.innerText = "🔑 CÓDIGO: " + data.code; }
+                else { display.innerText = "❌ " + (data.error || "Error al generar"); }
+            } catch(e) { display.innerText = "❌ Error de conexión"; }
         }
     </script>
 </body>
@@ -114,88 +77,92 @@ app.get('/', (req, res) => {
 app.post('/api/pairing', async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
-    
-    let retries = 10;
-    while (!globalSock && retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        retries--;
-    }
-
-    if (!globalSock) return res.status(500).json({ error: "Bot cargando, intenta de nuevo en unos segundos" });
+    if (!globalSock) return res.status(500).json({ error: "Bot no inicializado aún" });
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+        await new Promise(resolve => setTimeout(resolve, 2000));
         let code = await globalSock.requestPairingCode(cleanNumber);
         code = code?.match(/.{1,4}/g)?.join("-") || code;
         res.json({ code });
     } catch (err) {
-        console.error("Error web pairing:", err);
-        res.status(500).json({ error: "Fallo al generar el código" });
+        res.status(500).json({ error: "Falló la generación del código" });
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`🌐 Panneau Web TEAM DRONIX en ligne sur le port ${PORT}`);
+    console.log(`🌐 Servidor web activo en puerto ${PORT}`);
     connectToWhatsApp();
 });
-
-function loadData() {
-    if (!fs.existsSync(DATA_FILE)) {
-        fs.writeFileSync(DATA_FILE, JSON.stringify({ players: {}, groups: {}, history: {} }, null, 2));
-    }
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-}
-
-function saveData(data) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
 
 function getPlayer(data, id) {
     if (!data.players[id]) {
         data.players[id] = {
-            money: 500, wins: 0, losses: 0, active: 0, hasStarted: false, messageCount: 0,
+            money: 500, wins: 0, losses: 0, active: 0, hasStarted: false, messageCount: 0, warns: 0,
             pokes: [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', image: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png' }],
             birthDate: null, age: null, banned: false, mutedUntil: 0
         };
     }
     if (data.players[id].messageCount === undefined) data.players[id].messageCount = 0;
+    if (data.players[id].warns === undefined) data.players[id].warns = 0;
+    if (!data.players[id].pokes || data.players[id].pokes.length === 0) {
+        data.players[id].pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', image: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png' }];
+    }
     return data.players[id];
 }
 
 async function connectToWhatsApp() {
-    // USAMOS session_v6 PARA UNA CONEXIÓN LIMPIA Y ESTABLE
-    const { state, saveCreds } = await useMultiFileAuthState('session_v6');
+    const authCol = await initMongo();
+    const { state, saveCreds } = await useMongoAuthState(authCol);
 
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        browser: ['Chrome (Linux)', 'Chrome', '120.0.6099.28']
+        browser: ["Ubuntu", "Chrome", "22.04.4"],
+        logger: pino({ level: 'silent' })
     });
 
     globalSock = sock;
-
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         if (qr) {
             console.log("==========================================");
-            console.log("ESCANEA EL SIGUIENTE CÓDIGO QR CON WHATSAPP:");
+            console.log("ESCANEA EL CÓDIGO QR O USA TU PANEL WEB:");
             console.log("==========================================");
             qrcode.generate(qr, { small: true });
         }
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log('Conexión cerrada. Reconectando en 3s...', shouldReconnect);
-            if (shouldReconnect) {
-                setTimeout(() => connectToWhatsApp(), 3000);
-            }
+            console.log('Conexión cerrada. Reconectando...', shouldReconnect);
+            if (shouldReconnect) setTimeout(() => connectToWhatsApp(), 3000);
         } else if (connection === 'open') {
             console.log('¡Bot conectado correctamente a WhatsApp!');
         }
     });
 
-    const activeBattles = {};
+    sock.ev.on('group-participants.update', async (anu) => {
+        try {
+            const data = loadData();
+            let groupMetadata = null;
+            try { groupMetadata = await sock.groupMetadata(anu.id).catch(() => null); } catch (err) { return; }
+            const groupName = groupMetadata ? groupMetadata.subject : "Grupo";
+
+            const groupConfig = data.groups[anu.id] || {};
+            if (groupConfig.bienvenida === false) return;
+
+            if (anu.action === 'add') {
+                for (let num of anu.participants) {
+                    const cleanNum = num.replace(/[^0-9]/g, '');
+                    const welcomeText = `👋 ¡Bienvenido/a @${cleanNum} a *${groupName}*!\n\nDisfruta del grupo y diviértete con los minijuegos de ${BOT_NAME}. ✨`;
+                    await sock.sendMessage(anu.id, { text: welcomeText, mentions: [num] });
+                }
+            }
+        } catch (e) {
+            console.error("Error en bienvenida:", e);
+        }
+    });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
@@ -206,32 +173,38 @@ async function connectToWhatsApp() {
         const isGroup = from.endsWith('@g.us');
         const sender = msg.key.participant || msg.key.remoteJid;
         const senderClean = sender.replace(/[^0-9]/g, '');
-
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
 
         const data = loadData();
         const player = getPlayer(data, senderClean);
-
         const isFromMe = msg.key.fromMe;
         const isDev = isFromMe || sender.includes('56928637216') || senderClean.includes('56928637216') || DEV_NUMBERS.some(num => sender.includes(num));
 
-        let isAdmin = isDev;
-
-        if (isGroup && !isAdmin) {
+        // --- GESTIÓN DE MUTE ---
+        if (player.mutedUntil && player.mutedUntil > Date.now() && !isDev) {
             try {
-                const groupMetadata = await sock.groupMetadata(from);
-                const participants = groupMetadata.participants || [];
-                const userObj = participants.find(p => p.id && (p.id.includes(senderClean) || sender.includes(p.id.replace(/[^0-9]/g, ''))));
-                if (userObj && (userObj.admin === 'admin' || userObj.admin === 'superadmin')) {
-                    isAdmin = true;
-                }
+                await sock.sendMessage(from, { delete: msg.key });
             } catch (e) {
-                isAdmin = isDev;
+                console.error("Erreur suppression message muté:", e);
             }
+            return;
         }
 
-        // --- SISTEMA ANTI-SPAM (Categoría Admin) ---
-        if (isGroup && !isAdmin && !isDev) {
+        let isAdmin = isDev;
+        if (isGroup && !isAdmin) {
+            try {
+                const groupMetadata = await sock.groupMetadata(from).catch(() => null);
+                if (groupMetadata && groupMetadata.participants) {
+                    const userObj = groupMetadata.participants.find(p => p.id && (p.id.includes(senderClean) || sender.includes(p.id.replace(/[^0-9]/g, ''))));
+                    if (userObj && (userObj.admin === 'admin' || userObj.admin === 'superadmin')) isAdmin = true;
+                }
+            } catch (e) { isAdmin = isDev; }
+        }
+
+        const groupConfig = data.groups[from] || {};
+        const antiSpamEnabled = groupConfig.antispam !== false;
+
+        if (isGroup && !isAdmin && !isDev && antiSpamEnabled) {
             const now = Date.now();
             if (!userSpamTracker[senderClean]) {
                 userSpamTracker[senderClean] = { count: 1, lastTime: now };
@@ -249,19 +222,18 @@ async function connectToWhatsApp() {
             }
         }
 
+        // --- POKÉMON SPAWN / XP (100 MESSAGES) ---
         if (player.pokes && player.pokes.length > 0) {
             player.messageCount += 1;
-            if (player.messageCount >= 20) {
+            if (player.messageCount >= 100) {
                 player.messageCount = 0;
-                const activePoke = player.pokes[player.active || 0];
+                const activeIndex = player.active || 0;
+                if (!player.pokes[activeIndex]) player.active = 0;
+                const activePoke = player.pokes[player.active];
                 activePoke.level += 1;
                 activePoke.power += 5;
                 saveData(data);
-
-                await sock.sendMessage(from, { 
-                    text: `🎉 ¡El Pokémon *${activePoke.name.toUpperCase()}* de @${senderClean} subió al *Nivel ${activePoke.level}* por enviar 20 mensajes! (Poder: ${activePoke.power})`,
-                    mentions: [sender]
-                });
+                await sock.sendMessage(from, { text: `🎉 ¡El Pokémon *${activePoke.name.toUpperCase()}* de @${senderClean} subió al *Nivel ${activePoke.level}* por enviar 100 mensajes! (Poder: ${activePoke.power})`, mentions: [sender] });
             } else {
                 saveData(data);
             }
@@ -276,179 +248,190 @@ async function connectToWhatsApp() {
             return;
         }
 
-        if (player.mutedUntil && player.mutedUntil > Date.now() && !isDev) {
-            await sock.sendMessage(from, { text: '🔇 Estás silenciado y no puedes usar comandos temporalmente.' }, { quoted: msg });
-            return;
-        }
-
         const args = text.trim().slice(1).split(/ +/);
         const command = args[0].toLowerCase();
 
-        if (command === 'autoadmin') {
-            if (!isDev) {
-                await sock.sendMessage(from, { text: '❌ Solo el OWNER/Desarrollador puede usar /autoadmin.' }, { quoted: msg });
-                return;
-            }
-            if (!isGroup) {
-                await sock.sendMessage(from, { text: '⚠️ Este comando solo funciona en grupos.' }, { quoted: msg });
-                return;
-            }
+        // --- SUB-BOT / CODE ---
+        if (command === 'code' || command === 'subbot') {
+            const targetPhone = args[1] ? args[1].replace(/[^0-9]/g, '') : senderClean;
+            await sock.sendMessage(from, { text: `⏳ Génération du code d'appairage pour \`${targetPhone}\`... Veuillez patienter.` }, { quoted: msg });
             try {
-                await sock.groupParticipantsUpdate(from, [sender], 'promote');
-                await sock.sendMessage(from, { text: `👑 *¡Promovido a Administrador automáticamente!* Bienvenida/o Boss @${senderClean}.`, mentions: [sender] }, { quoted: msg });
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                let pairingCode = await sock.requestPairingCode(targetPhone);
+                pairingCode = pairingCode?.match(/.{1,4}/g)?.join("-") || pairingCode;
+
+                const codeMessage = `🤖 *SYSTÈME SUB-BOT - TEAM DRONIX*\n\n` +
+                                    `📲 *Numéro cible :* \`${targetPhone}\`\n` +
+                                    `🔑 *Code d'appairage :* \`${pairingCode}\`\n\n` +
+                                    `👉 *Instructions :*\n` +
+                                    `1. Va dans WhatsApp > Appareils liés > Associer avec un numéro de téléphone.\n` +
+                                    `2. Entre ce code à 8 caractères.`;
+
+                await sock.sendMessage(from, { text: codeMessage }, { quoted: msg });
             } catch (err) {
-                console.error("Error en autoadmin:", err);
-                await sock.sendMessage(from, { text: '❌ El bot necesita ser Administrador del grupo para poder otorgarte Admin.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Impossible de générer le code pour \`${targetPhone}\`.` }, { quoted: msg });
             }
             return;
         }
 
-        if (command === 'myid') {
-            await sock.sendMessage(from, { text: `📱 *INFORMACIÓN DE PERFIL:*\n\n• ID: \`${sender}\`\n• Limpio: \`${senderClean}\`\n• EsDev/Owner: *${isDev ? 'SÍ ✅' : 'NO ❌'}*\n• EsAdmin: *${isAdmin ? 'SÍ ✅' : 'NO ❌'}*` }, { quoted: msg });
+        if (command === 'setprimary') {
+            if (!isGroup) return;
+            primaryBotInGroup[from] = sock.user.id;
+            await sock.sendMessage(from, { text: `⭐ Este bot es ahora el bot principal (Primary) para este grupo.` }, { quoted: msg });
+            return;
+        }
+
+        if (isGroup && primaryBotInGroup[from] && primaryBotInGroup[from] !== sock.user.id && !isDev) {
+            return;
+        }
+
+        if (command === 'autoadmin') {
+            if (!isDev) return sock.sendMessage(from, { text: '❌ Acceso denegado.' }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: '⚠️ Solo en grupos.' }, { quoted: msg });
+            try {
+                await sock.groupParticipantsUpdate(from, [sender], 'promote');
+                await sock.sendMessage(from, { text: `👑 *¡Promovido a Administrador automáticamente!*`, mentions: [sender] }, { quoted: msg });
+            } catch (err) {
+                await sock.sendMessage(from, { text: '❌ El bot necesita ser Administrador.' }, { quoted: msg });
+            }
+            return;
+        }
+
+        if (command === 'antispam' || command === 'bienvenida') {
+            if (!isAdmin) return sock.sendMessage(from, { text: '❌ Solo administradores.' }, { quoted: msg });
+            const action = args[1]?.toLowerCase();
+            if (action !== 'on' && action !== 'off') return sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}${command} on | off` }, { quoted: msg });
+            data.groups[from] = data.groups[from] || {};
+            data.groups[from][command] = (action === 'on');
+            saveData(data);
+            await sock.sendMessage(from, { text: `✅ Configuración guardada: *${command}* está en *${action.toUpperCase()}*.` }, { quoted: msg });
             return;
         }
 
         if (command === 'bot') {
-            if (!isAdmin) {
-                await sock.sendMessage(from, { text: '❌ Solo los Administradores o el Desarrollador pueden cambiar el estado del bot.' }, { quoted: msg });
-                return;
-            }
+            if (!isAdmin) return sock.sendMessage(from, { text: '❌ Solo administradores.' }, { quoted: msg });
             const option = args[1]?.toLowerCase();
-            if (option === 'off') {
+            if (option === 'off' || option === 'on') {
                 data.groups[from] = data.groups[from] || {};
-                data.groups[from].botOff = true;
+                data.groups[from].botOff = (option === 'off');
                 saveData(data);
-                await sock.sendMessage(from, { text: `🔴 *${BOT_NAME} desactivado en este grupo.* No responderá hasta activar con ${prefix}bot on.` }, { quoted: msg });
-                return;
-            } else if (option === 'on') {
-                data.groups[from] = data.groups[from] || {};
-                data.groups[from].botOff = false;
-                saveData(data);
-                await sock.sendMessage(from, { text: `🟢 *¡${BOT_NAME} activado nuevamente en este grupo!* Listo para usar.` }, { quoted: msg });
-                return;
-            } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso correcto: ${prefix}bot on | ${prefix}bot off` }, { quoted: msg });
-                return;
+                await sock.sendMessage(from, { text: `⚙️ Bot ${option.toUpperCase()} en este grupo.` }, { quoted: msg });
             }
+            return;
         }
 
         if (data.groups[from]?.botOff && !isDev) return;
 
-        if (command === 'menu') {
+        // --- JUEGOS HTML (.juegos, .tetris, .2048, .snake, .memoria, .ppt, .buscaminas, .flappy, .conecta4) ---
+        try {
+            const { manejarJuego } = await import('./comandoJuegos.mjs');
+            if (await manejarJuego({ sock, remitente: from, msg }, command)) return;
+        } catch (e) {
+            console.error('Error en juegos HTML:', e);
+        }
+
+        // --- MEDIA: /youtube <busqueda> → MP3, /pin <busqueda> → foto ---
+        try {
+            if (await require('./mediaSearch').manejarMedia({ sock, from, msg, userId: senderClean }, command, args)) return;
+        } catch (e) {
+            console.error('Error en media:', e);
+        }
+
+        // MENÚ COMPLETO
+        if (command === 'menu' || command === 'help') {
             let menuText = `✨ *MENÚ PRINCIPAL - ${BOT_NAME}* ✨\n\n` +
-                `🎮 *POKÉMON & COMBATE:*\n` +
-                `• *{p}equipo* : Ver tu equipo y Pokémon activo.\n` +
-                `• *{p}pstart <nombre>* : Obtener Pokémon inicial.\n` +
-                `• *{p}pelegir <número>* : Seleccionar Pokémon activo.\n` +
-                `• *{p}buycandy* : Comprar Super Candy (+5 lvl).\n` +
-                `• *{p}pcombatir @usuario* : Desafiar a un jugador.\n` +
-                `• *{p}paceptar* / *{p}huir* : Gestionar combate.\n` +
-                `• *{p}pm 1,2,3,4* : Atacar.\n` +
-                `• *{p}evolucionar mega|dynamax|gigantamax*\n\n` +
-                `🎉 *COMANDOS FUN (DIVERSIÓN):*\n` +
-                `• *{p}chiste* : Cuenta un chiste al azar.\n` +
-                `• *{p}piropo @usuario* : Dice un piropo divertido.\n` +
-                `• *{p}gay @usuario* : Mide el porcentaje de diversión.\n\n` +
-                `📥 *MULTIMEDIA & BÚSQUEDA:*\n` +
-                `• *{p}yt <búsqueda>* : Buscar en YouTube.\n` +
-                `• *{p}pinterest <búsqueda>* : Buscar en Pinterest.\n` +
-                `• *{p}image <búsqueda>* : Buscar imágenes.\n` +
-                `• *{p}clima <ciudad>* : Ver el clima actual.\n\n` +
-                `🎂 *PERFIL & UTILIDADES:*\n` +
-                `• *{p}reg DD/MM/AAAA* : Registrar cumpleaños.\n` +
-                `• *{p}birthday @usuario* : Ver cumpleaños.\n` +
-                `• *{p}bal* : Ver tus monedas.\n` +
-                `• *{p}myid* : Ver tu ID.\n\n` +
-                `⚙️ *ADMINISTRADORES DE GRUPO (Anti-Spam activo):*\n` +
-                `• *{p}grupo abrir* / *{p}grupo cerrar*\n` +
-                `• *{p}kick @usuario* : Expulsar miembro.\n` +
-                `• *{p}ban @usuario* / *{p}unban @usuario*\n` +
-                `• *{p}mute @usuario <tiempo>* / *{p}unmute*\n` +
-                `• *{p}falsomsg <texto>* : Enviar mensaje imitando a alguien.`;
-
-            if (isDev) {
-                menuText += `\n\n👑 *COMANDOS EXCLUSIVOS OWNER / DEV:*\n` +
-                    `• *{p}autoadmin* : Volverte admin automáticamente.\n` +
-                    `• *{p}givepoke @usuario <poke> <poder>* : Dar Pokémon.\n` +
-                    `• *{p}givecoins @usuario <monto>* : Dar monedas.\n` +
-                    `• *{p}reiniciar* : Apagar o reiniciar el bot.`;
-            }
-
+                `🤖 *SUB-BOT:* \`{p}code <número>\`\n\n` +
+                `🎉 *FUNS & ÉMOTIONS:* \`{p}brat <texto>\`, \`{p}parejas\`, \`{p}gey @usuario\`, \`{p}chiste\`, \`{p}piropo\`, \`{p}hug @user\`, \`{p}kiss @user\`, \`{p}slap @user\`, \`{p}pat @user\`\n\n` +
+                `🎮 *POKÉMON & JUEGOS:* \`{p}equipo\`, \`{p}pstart <nombre>\`, \`{p}pelegir <num>\`, \`{p}buycandy\`, \`{p}pcombatir @usuario\`, \`{p}paceptar\`, \`{p}huir\`, \`{p}pm <1-4>\`, \`{p}mega|dynamax|gigantamax\`, \`{p}adivina\`, \`{p}gato @usuario\`\n\n` +
+                `🕹️ *JUEGOS HTML:* \`{p}juegos\`, \`{p}tetris\`, \`{p}2048\`, \`{p}snake\`, \`{p}memoria\`, \`{p}ppt\`, \`{p}buscaminas\`, \`{p}flappy\`, \`{p}conecta4\`\n\n` +
+                `📥 *UTILS:* \`{p}youtube <busq>\` (MP3), \`{p}pin <busq>\` (foto), \`{p}pin <busq> x3\`, \`{p}image <busq>\`, \`{p}clima <ciudad>\`, \`{p}bal\`\n\n` +
+                `⚙️ *ADMIN & MOD:* \`{p}kick @user\`, \`{p}ban @user\`, \`{p}warn @user\`, \`{p}infractions @user\`, \`{p}mute @user 10m\`, \`{p}unmute @user\`, \`{p}lock\`, \`{p}unlock\`, \`{p}purge\``;
             menuText = menuText.replace(/\{p\}/g, prefix);
             await sock.sendMessage(from, { text: menuText }, { quoted: msg });
         }
 
+        // FUNS & ÉMOTIONS
+        else if (command === 'brat' || command === 'bratv') {
+            const bratText = args.slice(1).join(' ');
+            if (!bratText) return sock.sendMessage(from, { text: `⚠️ Ingresa texto: \`${prefix}brat Hola\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🟩🟩🟩🟩🟩🟩\n🟩 *BRAT* : ${bratText}\n🟩🟩🟩🟩🟩🟩` }, { quoted: msg });
+        }
+
+        else if (command === 'parejas') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.` }, { quoted: msg });
+            try {
+                const groupMetadata = await sock.groupMetadata(from).catch(() => null);
+                const participants = groupMetadata?.participants || [];
+                if (participants.length < 2) return sock.sendMessage(from, { text: `❌ Pocos participantes.` }, { quoted: msg });
+                const p1 = participants[Math.floor(Math.random() * participants.length)].id;
+                let p2 = participants[Math.floor(Math.random() * participants.length)].id;
+                while (p1 === p2 && participants.length > 1) { p2 = participants[Math.floor(Math.random() * participants.length)].id; }
+                await sock.sendMessage(from, { text: `💘 *PAREJA DEL DÍA* 💘\n• @${p1.replace(/[^0-9]/g, '')}\n• @${p2.replace(/[^0-9]/g, '')}`, mentions: [p1, p2] }, { quoted: msg });
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ Error al sortear pareja.` }, { quoted: msg });
+            }
+        }
+
+        else if (command === 'gey' || command === 'gay') {
+            const porcentaje = Math.floor(Math.random() * 101);
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien: \`${prefix}gey @usuario\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🏳️‍🌈 @${target.replace(/[^0-9]/g, '')} tiene un ${porcentaje}%.\n\n😏 ¿Quién quiere tocar a ese femboy?`, mentions: [target] }, { quoted: msg });
+        }
+
         else if (command === 'chiste') {
-            const chistes = [
-                "¿Qué hace una abeja en el gimnasio? ¡Zumba!",
-                "— Papá, papá, ¿qué se siente tener un hijo tan guapo? — No lo sé hijo, pregúntale a tu abuelo.",
-                "¿Por qué los pájaros vuelan al sur en invierno? Porque caminando tardan demasiado."
-            ];
-            const randomChiste = chistes[Math.floor(Math.random() * chistes.length)];
-            await sock.sendMessage(from, { text: `😂 ${randomChiste}` }, { quoted: msg });
+            const chistes = ["¿Qué hace una abeja en el gimnasio? ¡Zumba!", "— Papá, ¿qué se siente tener un hijo tan guapo? — No lo sé hijo, pregúntale a tu abuelo."];
+            await sock.sendMessage(from, { text: `😂 ${chistes[Math.floor(Math.random() * chistes.length)]}` }, { quoted: msg });
         }
 
         else if (command === 'piropo') {
-            const piropos = [
-                "Si la belleza fuera pecado, tú estarías sin perdón.",
-                "¿Crees en el amor a primera vista o tengo que pasar por aquí otra vez?",
-                "Eres como el Google: tienes todo lo que estoy buscando."
-            ];
-            const randomPiropo = piropos[Math.floor(Math.random() * piropos.length)];
+            const piropos = ["Si la belleza fuera pecado, tú estarías sin perdón.", "Eres como el Google: tienes todo lo que estoy buscando."];
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
             const mentionText = target ? `@${target.replace(/[^0-9]/g, '')} ` : '';
-            await sock.sendMessage(from, { text: `❤️ ${mentionText}${randomPiropo}`, mentions: target ? [target] : [] }, { quoted: msg });
+            await sock.sendMessage(from, { text: `❤️ ${mentionText}${piropos[Math.floor(Math.random() * piropos.length)]}`, mentions: target ? [target] : [] }, { quoted: msg });
         }
 
-        else if (command === 'gay') {
-            const porcentaje = Math.floor(Math.random() * 101);
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const targetClean = target.replace(/[^0-9]/g, '');
-            await sock.sendMessage(from, { text: `🏳️‍🌈 Según mi escáner, @${targetClean} tiene un ${porcentaje}% de locura y diversión hoy.`, mentions: [target] }, { quoted: msg });
+        // --- COMMANDS D'ÉMOTIONS ---
+        else if (['hug', 'abrazo'].includes(command)) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para abrazar: \`${prefix}hug @usuario\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🤗 *@${senderClean}* le ha dado un cálido y tierno abrazo a *@${target.replace(/[^0-9]/g, '')}*. ¡Qué adorable! 💖`, mentions: [sender, target] }, { quoted: msg });
         }
 
-        else if (command === 'falsomsg') {
-            if (!isAdmin) {
-                await sock.sendMessage(from, { text: '❌ Solo los administradores pueden usar este comando.' }, { quoted: msg });
-                return;
-            }
-            const fakeText = args.slice(1).join(' ');
-            if (!fakeText) return;
-            await sock.sendMessage(from, { text: fakeText });
+        else if (['kiss', 'beso'].includes(command)) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para besar: \`${prefix}kiss @usuario\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `😘 *@${senderClean}* le ha robado un tierno beso a *@${target.replace(/[^0-9]/g, '')}*. 💋✨`, mentions: [sender, target] }, { quoted: msg });
         }
 
-        else if (command === 'clima') {
-            const ciudad = args.slice(1).join(' ');
-            if (!ciudad) return;
-            await sock.sendMessage(from, { text: `🌤️ Clima para *${ciudad}*: https://wttr.in/${encodeURIComponent(ciudad)}?lang=es` }, { quoted: msg });
+        else if (['slap', 'bofetada', 'golpe'].includes(command)) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para golpear: \`${prefix}slap @usuario\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `💥 *@${senderClean}* le ha dado una tremenda bofetada a *@${target.replace(/[^0-9]/g, '')}*. ¡Eso debió doler! 🖐️⚡`, mentions: [sender, target] }, { quoted: msg });
         }
 
-        else if (command === 'reiniciar') {
-            if (!isDev) return;
-            await sock.sendMessage(from, { text: `🔄 Reiniciando el sistema de ${BOT_NAME}...` });
-            process.exit(0);
+        else if (['pat', 'caricia'].includes(command)) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para acariciar: \`${prefix}pat @usuario\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🐾 *@${senderClean}* acaricia suavemente la cabeza de *@${target.replace(/[^0-9]/g, '')}*. ¡Buen chico/a! ✨`, mentions: [sender, target] }, { quoted: msg });
         }
 
+        // POKÉMON & JUEGOS
         else if (command === 'pstart') {
-            if (player.hasStarted && !isDev) {
-                await sock.sendMessage(from, { text: `❌ Ya usaste tu ${prefix}pstart inicial.` }, { quoted: msg });
-                return;
-            }
+            if (player.hasStarted && !isDev) return sock.sendMessage(from, { text: `❌ Ya usaste tu ${prefix}pstart.` }, { quoted: msg });
             const pokeName = args[1]?.toLowerCase();
-            if (!pokeName) return;
-            player.pokes.push({ 
-                name: pokeName, level: 10, xp: 0, power: 80, form: 'normal',
-                image: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokeName}.png`
-            });
+            if (!pokeName) return sock.sendMessage(from, { text: `⚠️ Especifica un Pokémon. Ej: \`${prefix}pstart charmander\`` }, { quoted: msg });
+            const pokeImg = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokeName}.png`;
+            player.pokes.push({ name: pokeName, level: 10, xp: 0, power: 80, form: 'normal', image: pokeImg });
             player.active = player.pokes.length - 1;
             player.hasStarted = true;
             saveData(data);
-            await sock.sendMessage(from, { text: `🎉 ¡Has obtenido a *${pokeName.toUpperCase()}*!` }, { quoted: msg });
+            await sock.sendMessage(from, { image: { url: pokeImg }, caption: `🎉 ¡Has obtenido a *${pokeName.toUpperCase()}*!` }, { quoted: msg });
         }
 
         else if (command === 'pelegir') {
             const index = parseInt(args[1]) - 1;
-            if (isNaN(index) || index < 0 || index >= player.pokes.length) return;
+            if (isNaN(index) || index < 0 || index >= player.pokes.length) return sock.sendMessage(from, { text: `⚠️ Número de Pokémon inválido.` }, { quoted: msg });
             player.active = index;
             saveData(data);
             await sock.sendMessage(from, { text: `⭐ Seleccionaste a *${player.pokes[index].name.toUpperCase()}*.` }, { quoted: msg });
@@ -456,65 +439,301 @@ async function connectToWhatsApp() {
 
         else if (command === 'buycandy') {
             const cost = 150;
-            if (player.money < cost) return;
+            if (player.money < cost) return sock.sendMessage(from, { text: `❌ Monedas insuficientes.` }, { quoted: msg });
             player.money -= cost;
+            const activeIdx = player.active || 0;
+            if (!player.pokes[activeIdx]) player.active = 0;
             player.pokes[player.active].level += 5;
             player.pokes[player.active].power += 25;
             saveData(data);
-            await sock.sendMessage(from, { text: `🍬 ¡Compraste un Super Candy!` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🍬 ¡Compraste un Super Candy (+5 niveles)!` }, { quoted: msg });
         }
 
-        else if (command === 'yt' || command === 'youtube') {
-            const query = args.slice(1).join(' ');
-            if (!query) return;
-            await sock.sendMessage(from, { text: `🔍 YouTube: https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` }, { quoted: msg });
+        else if (command === 'equipo') {
+            let info = `📱 *Equipo de @${senderClean}:*\n\n`;
+            player.pokes.forEach((p, idx) => {
+                const activeTag = (idx === player.active) ? ' ⭐ (Activo)' : '';
+                info += `${idx + 1}. *${p.name.toUpperCase()}* [Nvl ${p.level}] (Poder: ${p.power}) - Forma: ${p.form}${activeTag}\n`;
+            });
+            await sock.sendMessage(from, { text: info, mentions: [sender] }, { quoted: msg });
         }
 
-        else if (command === 'pinterest') {
-            const query = args.slice(1).join(' ');
-            if (!query) return;
-            await sock.sendMessage(from, { text: `📌 Pinterest: https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}` }, { quoted: msg });
-        }
-
-        else if (command === 'image' || command === 'google') {
-            const query = args.slice(1).join(' ');
-            if (!query) return;
-            const imgUrl = `https://images.weserv.nl/?url=source.unsplash.com/featured/?${encodeURIComponent(query)}`;
-            await sock.sendMessage(from, { image: { url: imgUrl }, caption: `🖼️ Imagen de: *${query}*` }, { quoted: msg });
-        }
-
-        else if (command === 'givepoke') {
-            if (!isDev) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const pokeName = args[1]?.toLowerCase();
-            const power = parseInt(args[args.length - 1]) || 100;
-            if (!pokeName) return;
+        else if (command === 'pcombatir') {
+            if (activeBattles[from]) {
+                return sock.sendMessage(from, { text: `⚠️ Ya hay un combate en curso en este grupo. Espera a que termine.` }, { quoted: msg });
+            }
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a tu oponente: \`${prefix}pcombatir @usuario\`` }, { quoted: msg });
             const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).pokes.push({ name: pokeName, level: 50, xp: 0, power: power, form: 'normal', image: '' });
-            saveData(data);
-            await sock.sendMessage(from, { text: `🎁 Pokémon *${pokeName.toUpperCase()}* regalado a @${targetClean}.`, mentions: [target] }, { quoted: msg });
+            activeBattles[from] = { p1: senderClean, p2: targetClean, status: 'pending' };
+            await sock.sendMessage(from, { text: `⚔️ Desafío enviado a @${targetClean}. Escribe *${prefix}paceptar* o *${prefix}huir*.`, mentions: [target] }, { quoted: msg });
         }
 
-        else if (command === 'givecoins') {
-            if (!isDev) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const amount = parseInt(args[args.length - 1]);
-            if (isNaN(amount)) return;
+        else if (command === 'paceptar' || command === 'aceptar') {
+            const battle = activeBattles[from];
+            if (!battle || battle.status !== 'pending') return;
+            if (battle.p2 !== senderClean) {
+                return sock.sendMessage(from, { text: `❌ Solo el usuario desafiado puede aceptar el combate.` }, { quoted: msg });
+            }
+            battle.status = 'active';
+            battle.turn = battle.p1;
+            
+            const p1Obj = getPlayer(data, battle.p1);
+            const p2Obj = getPlayer(data, battle.p2);
+            const p1Poke = p1Obj.pokes[p1Obj.active || 0] || p1Obj.pokes[0];
+            const p2Poke = p2Obj.pokes[p2Obj.active || 0] || p2Obj.pokes[0];
+
+            battle.p1MaxHp = (p1Poke.power || 50) * 5;
+            battle.p2MaxHp = (p2Poke.power || 50) * 5;
+            battle.p1Hp = battle.p1MaxHp;
+            battle.p2Hp = battle.p2MaxHp;
+
+            const p1Jid = `${battle.p1}@s.whatsapp.net`;
+            const p2Jid = `${battle.p2}@s.whatsapp.net`;
+            
+            const startMsg = `🥊 *¡Combate iniciado!*\n\n` +
+                             `• @${battle.p1} (${p1Poke.name.toUpperCase()}): ${battle.p1Hp}/${battle.p1MaxHp}\n` +
+                             `• @${battle.p2} (${p2Poke.name.toUpperCase()}): ${battle.p2Hp}/${battle.p2MaxHp}\n\n` +
+                             `👉 Turno de @${battle.turn}.\n` +
+                             `/pm 1 · Ataque Rápido\n` +
+                             `/pm 2 · Bola Sombra\n` +
+                             `/pm 3 · Placaje\n` +
+                             `/pm 4 · Hiperrayo`;
+
+            await sock.sendMessage(from, { text: startMsg, mentions: [p1Jid, p2Jid] });
+        }
+
+        else if (command === 'huir') {
+            const battle = activeBattles[from];
+            if (!battle || (battle.p1 !== senderClean && battle.p2 !== senderClean)) return;
+            delete activeBattles[from];
+            await sock.sendMessage(from, { text: `🏃‍♂️ El combate ha sido cancelado / huido.` }, { quoted: msg });
+        }
+
+        else if (command === 'pm') {
+            const battle = activeBattles[from];
+            if (!battle || battle.status !== 'active') return;
+            if (senderClean !== battle.p1 && senderClean !== battle.p2) {
+                return sock.sendMessage(from, { text: `❌ No estás participando en el combate actual.` }, { quoted: msg });
+            }
+            if (battle.turn !== senderClean) {
+                return sock.sendMessage(from, { text: `⏳ No es tu turno. Espera a que tu oponente ataque.` }, { quoted: msg });
+            }
+
+            const moveNum = parseInt(args[1]);
+            if (![1, 2, 3, 4].includes(moveNum)) return;
+
+            const isP1 = (senderClean === battle.p1);
+            const damage = moveNum * 15;
+            
+            const p1Obj = getPlayer(data, battle.p1);
+            const p2Obj = getPlayer(data, battle.p2);
+            const p1Poke = p1Obj.pokes[p1Obj.active || 0] || p1Obj.pokes[0];
+            const p2Poke = p2Obj.pokes[p2Obj.active || 0] || p2Obj.pokes[0];
+
+            const attackerName = isP1 ? p1Poke.name.toUpperCase() : p2Poke.name.toUpperCase();
+            
+            if (isP1) {
+                battle.p2Hp = Math.max(0, battle.p2Hp - damage);
+            } else {
+                battle.p1Hp = Math.max(0, battle.p1Hp - damage);
+            }
+
+            const p1Jid = `${battle.p1}@s.whatsapp.net`;
+            const p2Jid = `${battle.p2}@s.whatsapp.net`;
+
+            if (battle.p1Hp <= 0 || battle.p2Hp <= 0) {
+                const winner = battle.p1Hp > 0 ? battle.p1 : battle.p2;
+                getPlayer(data, winner).money += 200;
+                saveData(data);
+                await sock.sendMessage(from, { text: `🏆 ¡@${winner} ganó el combate y 200 monedas!`, mentions: [`${winner}@s.whatsapp.net`] });
+                delete activeBattles[from];
+            } else {
+                battle.turn = isP1 ? battle.p2 : battle.p1;
+                const nextJid = `${battle.turn}@s.whatsapp.net`;
+                
+                const turnMsg = `💥 *${attackerName}* usó ataque y causó *${damage}* de daño.\n\n` +
+                                `• @${battle.p1} (${p1Poke.name.toUpperCase()}): ${battle.p1Hp}/${battle.p1MaxHp}\n` +
+                                `• @${battle.p2} (${p2Poke.name.toUpperCase()}): ${battle.p2Hp}/${battle.p2MaxHp}\n\n` +
+                                `👉 Turno de @${battle.turn}.\n` +
+                                `/pm 1 · Ataque Rápido\n` +
+                                `/pm 2 · Bola Sombra\n` +
+                                `/pm 3 · Placaje\n` +
+                                `/pm 4 · Hiperrayo`;
+
+                await sock.sendMessage(from, { text: turnMsg, mentions: [p1Jid, p2Jid] });
+            }
+        }
+
+        // --- MÉGA-ÉVOLUTION EN PLEIN COMBAT AVEC ENVOI D'IMAGE ---
+        else if (['mega', 'dynamax', 'gigantamax'].includes(command)) {
+            const battle = activeBattles[from];
+            if (!battle || battle.status !== 'active') {
+                return sock.sendMessage(from, { text: `⚠️ Las formas especiales (Mega, Dynamax, Gigantamax) solo se pueden usar *durante un combate activo*.` }, { quoted: msg });
+            }
+            if (senderClean !== battle.p1 && senderClean !== battle.p2) {
+                return sock.sendMessage(from, { text: `❌ No estás en el combate actual.` }, { quoted: msg });
+            }
+
+            const formType = command;
+            const activeIdx = player.active || 0;
+            if (!player.pokes[activeIdx]) player.active = 0;
+            
+            const currentPoke = player.pokes[player.active];
+            currentPoke.form = formType;
+            currentPoke.power += 50;
+
+            if (senderClean === battle.p1) {
+                battle.p1MaxHp += 100;
+                battle.p1Hp += 100;
+            } else {
+                battle.p2MaxHp += 100;
+                battle.p2Hp += 100;
+            }
+            saveData(data);
+
+            const p1Obj = getPlayer(data, battle.p1);
+            const p2Obj = getPlayer(data, battle.p2);
+            const p1Poke = p1Obj.pokes[p1Obj.active || 0] || p1Obj.pokes[0];
+            const p2Poke = p2Obj.pokes[p2Obj.active || 0] || p2Obj.pokes[0];
+
+            const p1Jid = `${battle.p1}@s.whatsapp.net`;
+            const p2Jid = `${battle.p2}@s.whatsapp.net`;
+
+            const pokeImageUrl = currentPoke.image || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${currentPoke.name}.png`;
+
+            const evolveMsg = `✨ *¡MEGA-EVOLUCIÓN EN COMBATE!* ✨\n\n` +
+                              `🔥 ¡El Pokémon de @${senderClean} ha evolucionado a forma *${formType.toUpperCase()}*!\n` +
+                              `💪 ¡Poder y PV aumentados considerablemente!\n\n` +
+                              `• @${battle.p1} (${p1Poke.name.toUpperCase()}[${p1Poke.form}]): ${battle.p1Hp}/${battle.p1MaxHp}\n` +
+                              `• @${battle.p2} (${p2Poke.name.toUpperCase()}[${p2Poke.form}]): ${battle.p2Hp}/${battle.p2MaxHp}\n\n` +
+                              `👉 Turno de @${battle.turn}.\n` +
+                              `/pm 1 · Ataque Rápido\n` +
+                              `/pm 2 · Bola Sombra\n` +
+                              `/pm 3 · Placaje\n` +
+                              `/pm 4 · Hiperrayo`;
+
+            await sock.sendMessage(from, { image: { url: pokeImageUrl }, caption: evolveMsg, mentions: [p1Jid, p2Jid, sender] });
+        }
+
+        else if (command === 'adivina') {
+            const trivias = [
+                { q: "¿Qué Pokémon es conocido como el ratón eléctrico?", a: "pikachu" },
+                { q: "¿Cuál es la evolución inicial tipo planta de la primera generación?", a: "bulbasaur" },
+                { q: "¿Qué criatura legendaria de fuego parece un dragón pero no es tipo dragón?", a: "charizard" }
+            ];
+            const randomTrivia = trivias[Math.floor(Math.random() * trivias.length)];
+            activeTrivia[from] = randomTrivia.a;
+            await sock.sendMessage(from, { text: `❓ *TRIVIA POKÉMON* ❓\n\n${randomTrivia.q}\n\n👉 Responde con: \`${prefix}resp <respuesta>\` (Gana 100 monedas).` }, { quoted: msg });
+        }
+
+        else if (command === 'resp') {
+            const ans = args.slice(1).join(' ').toLowerCase();
+            if (!activeTrivia[from]) return;
+            if (ans === activeTrivia[from]) {
+                player.money += 100;
+                saveData(data);
+                await sock.sendMessage(from, { text: `🎉 ¡Correcto @${senderClean}! +100 monedas.`, mentions: [sender] }, { quoted: msg });
+                delete activeTrivia[from];
+            } else {
+                await sock.sendMessage(from, { text: `❌ Incorrecto.` }, { quoted: msg });
+            }
+        }
+
+        else if (command === 'gato' || command === 'tictactoe') {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un oponente: \`${prefix}gato @usuario\`` }, { quoted: msg });
             const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).money += amount;
-            saveData(data);
-            await sock.sendMessage(from, { text: `💰 Se agregaron ${amount} monedas a @${targetClean}.`, mentions: [target] }, { quoted: msg });
+            activeTictactoe[from] = { p1: senderClean, p2: targetClean, board: [1, 2, 3, 4, 5, 6, 7, 8, 9], turn: senderClean };
+            await sock.sendMessage(from, { text: `⭕ JUEGO DE GATO ❌\n@${senderClean} (⭕) vs @${targetClean} (❌)\n\n1 | 2 | 3\n----------\n4 | 5 | 6\n----------\n7 | 8 | 9\n\n👉 Turno de @${senderClean}. Usa ${prefix}pos <1-9>`, mentions: [sender, target] });
         }
 
-        else if (command === 'grupo' || command === 'abrir' || command === 'cerrar') {
-            if (!isAdmin) return;
-            const action = command === 'grupo' ? args[1]?.toLowerCase() : command;
-            if (action === 'abrir' || action === 'open') {
-                await sock.groupSettingUpdate(from, 'not_announcement');
-                await sock.sendMessage(from, { text: '🔓 Grupo abierto.' }, { quoted: msg });
-            } else if (action === 'cerrar' || action === 'close') {
+        else if (command === 'pos') {
+            const game = activeTictactoe[from];
+            if (!game || game.turn !== senderClean) return;
+            const pos = parseInt(args[1]) - 1;
+            if (isNaN(pos) || pos < 0 || pos > 8 || typeof game.board[pos] === 'string') return sock.sendMessage(from, { text: `⚠️ Posición inválida u ocupada.` }, { quoted: msg });
+            
+            const symbol = (senderClean === game.p1) ? '⭕' : '❌';
+            game.board[pos] = symbol;
+            game.turn = (game.turn === game.p1) ? game.p2 : game.p1;
+
+            const b = game.board;
+            const boardText = `${b[0]} | ${b[1]} | ${b[2]}\n----------\n${b[3]} | ${b[4]} | ${b[5]}\n----------\n${b[6]} | ${b[7]} | ${b[8]}`;
+            await sock.sendMessage(from, { text: `🎮 *Gato*\n\n${boardText}\n\n👉 Turno de @${game.turn}`, mentions: [`${game.turn}@s.whatsapp.net`] });
+        }
+
+        // MUTE ET MODERATION ET NOUVELLES COMMANDES ADMIN
+        else if (command === 'mute') {
+            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            const timeArg = args[2] || args[1];
+            if (!target || !timeArg) return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}mute @usuario 10m\` (o 1h, 1d)` }, { quoted: msg });
+            
+            const unit = timeArg.slice(-1).toLowerCase();
+            const val = parseInt(timeArg.slice(0, -1));
+            let ms = unit === 'm' ? val * 60 * 1000 : unit === 'h' ? val * 3600000 : val * 86400000;
+            if (isNaN(ms)) ms = 10 * 60 * 1000;
+
+            const targetClean = target.replace(/[^0-9]/g, '');
+            getPlayer(data, targetClean).mutedUntil = Date.now() + ms;
+            saveData(data);
+            await sock.sendMessage(from, { text: `🔇 Usuario @${targetClean} silenciado. Sus mensajes se borrarán automáticamente hasta que sea desmuteado.`, mentions: [target] }, { quoted: msg });
+        }
+
+        else if (command === 'unmute') {
+            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta al usuario: \`${prefix}unmute @usuario\`` }, { quoted: msg });
+            const targetClean = target.replace(/[^0-9]/g, '');
+            getPlayer(data, targetClean).mutedUntil = 0;
+            saveData(data);
+            await sock.sendMessage(from, { text: `🔊 Usuario @${targetClean} desmuteado correctamente.`, mentions: [target] }, { quoted: msg });
+        }
+
+        else if (command === 'warn' || command === 'advertir') {
+            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta al usuario a advertir: \`${prefix}warn @usuario\`` }, { quoted: msg });
+            const targetClean = target.replace(/[^0-9]/g, '');
+            const targetPlayer = getPlayer(data, targetClean);
+            targetPlayer.warns += 1;
+            saveData(data);
+            await sock.sendMessage(from, { text: `⚠️ @${targetClean} ha recibido una advertencia (${targetPlayer.warns}/3).`, mentions: [target] }, { quoted: msg });
+            if (targetPlayer.warns >= 3) {
+                try {
+                    await sock.groupParticipantsUpdate(from, [target], 'remove');
+                    await sock.sendMessage(from, { text: `🚫 @${targetClean} fue expulsado automáticamente por acumular 3 advertencias.`, mentions: [target] });
+                } catch (e) {
+                    await sock.sendMessage(from, { text: `❌ El bot necesita ser admin para expulsar automáticamente.` });
+                }
+            }
+        }
+
+        else if (command === 'infractions' || command === 'warns') {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
+            const targetClean = target.replace(/[^0-9]/g, '');
+            const targetPlayer = getPlayer(data, targetClean);
+            await sock.sendMessage(from, { text: `📌 El usuario @${targetClean} tiene *${targetPlayer.warns}* advertencia(s).`, mentions: [target] }, { quoted: msg });
+        }
+
+        else if (command === 'lock' || command === 'cerrar') {
+            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            try {
                 await sock.groupSettingUpdate(from, 'announcement');
-                await sock.sendMessage(from, { text: '🔒 Grupo cerrado.' }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🔒 Grupo cerrado. Solo los administradores pueden enviar mensajes.` }, { quoted: msg });
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ El bot necesita ser Administrador.` }, { quoted: msg });
+            }
+        }
+
+        else if (command === 'unlock' || command === 'abrir') {
+            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            try {
+                await sock.groupSettingUpdate(from, 'not_announcement');
+                await sock.sendMessage(from, { text: `🔓 Grupo abierto. Todos los miembros pueden participar.` }, { quoted: msg });
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ El bot necesita ser Administrador.` }, { quoted: msg });
             }
         }
 
@@ -546,111 +765,49 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: `✅ @${targetClean} desbaneado.`, mentions: [target] }, { quoted: msg });
         }
 
-        else if (command === 'mute') {
-            if (!isAdmin) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            const timeArg = args[2];
-            if (!target || !timeArg) return;
-            const unit = timeArg.slice(-1).toLowerCase();
-            const val = parseInt(timeArg.slice(0, -1));
-            let ms = unit === 'm' ? val * 60 * 1000 : unit === 'h' ? val * 3600000 : val * 86400000;
-            getPlayer(data, target.replace(/[^0-9]/g, '')).mutedUntil = Date.now() + ms;
-            saveData(data);
-            await sock.sendMessage(from, { text: `🔇 Usuario silenciado por ${timeArg}.`, mentions: [target] }, { quoted: msg });
+        // UTILS
+        else if (command === 'image' || command === 'google') {
+            const query = args.slice(1).join(' ');
+            if (!query) return;
+            const imgUrl = `https://images.weserv.nl/?url=source.unsplash.com/featured/?${encodeURIComponent(query)}`;
+            await sock.sendMessage(from, { image: { url: imgUrl }, caption: `🖼️ Imagen de: *${query}*` }, { quoted: msg });
         }
 
-        else if (command === 'unmute') {
-            if (!isAdmin) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return;
-            getPlayer(data, target.replace(/[^0-9]/g, '')).mutedUntil = 0;
-            saveData(data);
-            await sock.sendMessage(from, { text: `🔊 Usuario desmuteado.`, mentions: [target] }, { quoted: msg });
-        }
-
-        else if (command === 'equipo') {
-            let info = `📱 *Equipo de @${senderClean}:*\n\n`;
-            player.pokes.forEach((p, idx) => {
-                const activeTag = (idx === player.active) ? ' ⭐ (Activo)' : '';
-                info += `${idx + 1}. *${p.name.toUpperCase()}* [Nvl ${p.level}] (Poder: ${p.power})${activeTag}\n`;
-            });
-            await sock.sendMessage(from, { text: info, mentions: [sender] }, { quoted: msg });
-        }
-
-        else if (command === 'pcombatir') {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return;
-            const targetClean = target.replace(/[^0-9]/g, '');
-            activeBattles[from] = { p1: senderClean, p2: targetClean, status: 'pending' };
-            await sock.sendMessage(from, { text: `⚔️ Desafío enviado a @${targetClean}. Escribe *${prefix}paceptar* o *${prefix}huir*.`, mentions: [sender, target] }, { quoted: msg });
-        }
-
-        else if (command === 'paceptar') {
-            const battle = activeBattles[from];
-            if (!battle || battle.p2 !== senderClean || battle.status !== 'pending') return;
-            battle.status = 'active';
-            battle.turn = battle.p1;
-            const p1Poke = getPlayer(data, battle.p1).pokes[0];
-            const p2Poke = getPlayer(data, battle.p2).pokes[0];
-            battle.p1Hp = p1Poke.power * 5;
-            battle.p2Hp = p2Poke.power * 5;
-            await sock.sendMessage(from, { text: `🥊 ¡Combate iniciado! Turno de @${battle.p1}. Usa ${prefix}pm 1,2,3 o 4.`, mentions: [`${battle.p1}@s.whatsapp.net`] });
-        }
-
-        else if (command === 'huir') {
-            delete activeBattles[from];
-            await sock.sendMessage(from, { text: `🏃‍♂️ Has huido del combate.` }, { quoted: msg });
-        }
-
-        else if (command === 'pm') {
-            const battle = activeBattles[from];
-            if (!battle || battle.status !== 'active' || battle.turn !== senderClean) return;
-            const moveNum = parseInt(args[1]);
-            if (![1, 2, 3, 4].includes(moveNum)) return;
-
-            const isP1 = (senderClean === battle.p1);
-            const damage = moveNum * 15;
-            if (isP1) battle.p2Hp = Math.max(0, battle.p2Hp - damage);
-            else battle.p1Hp = Math.max(0, battle.p1Hp - damage);
-
-            if (battle.p1Hp <= 0 || battle.p2Hp <= 0) {
-                const winner = battle.p1Hp > 0 ? battle.p1 : battle.p2;
-                getPlayer(data, winner).money += 200;
-                saveData(data);
-                await sock.sendMessage(from, { text: `🏆 ¡@${winner} ganó el combate y 200 monedas!`, mentions: [`${winner}@s.whatsapp.net`] });
-                delete activeBattles[from];
-            } else {
-                battle.turn = isP1 ? battle.p2 : battle.p1;
-                await sock.sendMessage(from, { text: `⚔️ ¡Ataque exitoso! HP restante — P1: ${battle.p1Hp} | P2: ${battle.p2Hp}\n👉 Turno de @${battle.turn}`, mentions: [`${battle.turn}@s.whatsapp.net`] });
-            }
-        }
-
-        else if (command === 'evolucionar') {
-            const formType = args[1]?.toLowerCase();
-            if (!['mega', 'dynamax', 'gigantamax'].includes(formType) || player.money < 500) return;
-            player.money -= 500;
-            player.pokes[player.active].form = formType;
-            player.pokes[player.active].power += 40;
-            saveData(data);
-            await sock.sendMessage(from, { text: `✨ ¡Tu Pokémon evolucionó a forma *${formType.toUpperCase()}*!` }, { quoted: msg });
-        }
-
-        else if (command === 'reg') {
-            const dateStr = args[1];
-            if (!dateStr) return;
-            player.birthDate = dateStr;
-            saveData(data);
-            await sock.sendMessage(from, { text: `✅ Cumpleaños registrado (${dateStr}).` }, { quoted: msg });
-        }
-
-        else if (command === 'birthday') {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const targetObj = getPlayer(data, target.replace(/[^0-9]/g, ''));
-            await sock.sendMessage(from, { text: `🎂 Cumpleaños: ${targetObj.birthDate || 'No registrado'}` }, { quoted: msg });
+        else if (command === 'clima') {
+            const ciudad = args.slice(1).join(' ');
+            if (!ciudad) return;
+            await sock.sendMessage(from, { text: `🌤️ Clima para *${ciudad}*: https://wttr.in/${encodeURIComponent(ciudad)}?lang=es` }, { quoted: msg });
         }
 
         else if (command === 'bal') {
             await sock.sendMessage(from, { text: `💰 Tienes *${player.money} monedas*.` }, { quoted: msg });
+        }
+
+        // OWNER
+        else if (command === 'givepoke' && isDev) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
+            const pokeName = args[1]?.toLowerCase();
+            const power = parseInt(args[args.length - 1]) || 100;
+            if (!pokeName) return;
+            const targetClean = target.replace(/[^0-9]/g, '');
+            getPlayer(data, targetClean).pokes.push({ name: pokeName, level: 50, xp: 0, power: power, form: 'normal', image: '' });
+            saveData(data);
+            await sock.sendMessage(from, { text: `🎁 Pokémon *${pokeName.toUpperCase()}* regalado a @${targetClean}.`, mentions: [target] }, { quoted: msg });
+        }
+
+        else if (command === 'givecoins' && isDev) {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
+            const amount = parseInt(args[args.length - 1]);
+            if (isNaN(amount)) return;
+            const targetClean = target.replace(/[^0-9]/g, '');
+            getPlayer(data, targetClean).money += amount;
+            saveData(data);
+            await sock.sendMessage(from, { text: `💰 Se agregaron ${amount} monedas a @${targetClean}.`, mentions: [target] }, { quoted: msg });
+        }
+
+        else if (command === 'reiniciar' && isDev) {
+            await sock.sendMessage(from, { text: `🔄 Reiniciando el sistema de ${BOT_NAME}...` });
+            process.exit(0);
         }
     });
 }
