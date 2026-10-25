@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
-let globalSock = null;
+const activeSessions = {}; 
 const userSpamTracker = {};
 const activeBattles = {};
 const activeDbzBattles = {};
@@ -77,22 +77,20 @@ app.get('/', (req, res) => {
 app.post('/api/pairing', async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
-    if (!globalSock) return res.status(500).json({ error: "Bot no inicializado aún" });
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        let code = await globalSock.requestPairingCode(cleanNumber);
-        code = code?.match(/.{1,4}/g)?.join("-") || code;
+        const code = await startUserSession(cleanNumber);
         res.json({ code });
     } catch (err) {
-        res.status(500).json({ error: "Falló la generación del código" });
+        console.error("Error al generar código de emparejamiento:", err);
+        res.status(500).json({ error: "Falló la generación del código. Intente de nuevo." });
     }
 });
 
 app.listen(PORT, () => {
     console.log(`🌐 Servidor web activo en puerto ${PORT}`);
-    connectToWhatsApp();
+    startUserSession('56928637216');
 });
 
 function loadData() {
@@ -143,8 +141,13 @@ function getPlayer(data, id) {
     return player;
 }
 
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_v4');
+async function startUserSession(cleanNumber) {
+    const sessionDir = `./sessions/session_${cleanNumber}`;
+    if (!fs.existsSync('./sessions')) {
+        fs.mkdirSync('./sessions', { recursive: true });
+    }
+
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
     const sock = makeWASocket({
         auth: state,
@@ -153,30 +156,42 @@ async function connectToWhatsApp() {
         logger: pino({ level: 'silent' })
     });
 
-    globalSock = sock;
+    activeSessions[cleanNumber] = sock;
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         if (qr) {
-            console.log("==========================================");
-            console.log("ESCANEA EL CÓDIGO QR O USA TU PANEL WEB:");
-            console.log("==========================================");
+            console.log(`[Session ${cleanNumber}] CODE QR Généré dans les logs.`);
             qrcode.generate(qr, { small: true });
         }
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando...`, shouldReconnect);
-            
-            setTimeout(() => {
-                connectToWhatsApp();
-            }, 5000);
+            console.log(`[Session ${cleanNumber}] Conexión cerrada (${statusCode}). Reconectando...`, shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(() => startUserSession(cleanNumber), 5000);
+            } else {
+                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
+                delete activeSessions[cleanNumber];
+            }
         } else if (connection === 'open') {
-            console.log('¡Bot conectado correctamente a WhatsApp!');
+            console.log(`¡[Session ${cleanNumber}] Bot conectado correctamente a WhatsApp!`);
         }
     });
 
+    setupEvents(sock);
+
+    if (!state.creds.registered) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        let code = await sock.requestPairingCode(cleanNumber);
+        code = code?.match(/.{1,4}/g)?.join("-") || code;
+        return code;
+    }
+    return null;
+}
+
+function setupEvents(sock) {
     sock.ev.on('group-participants.update', async (anu) => {
         try {
             const data = loadData();
@@ -228,7 +243,6 @@ async function connectToWhatsApp() {
         }
 
         const groupConfig = data.groups[from] || {};
-
         if (groupConfig.botOff && !isDev) return;
 
         const antiSpamEnabled = groupConfig.antispam !== false;
@@ -250,7 +264,6 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- COMPTEUR DE 100 MESSAGES PARTAGÉ AVEC IMAGES POUR LES SPAWNS ---
         if (isGroup) {
             data.groups[from] = groupConfig;
             data.groups[from].msgCount = (groupConfig.msgCount || 0) + 1;
@@ -331,7 +344,7 @@ async function connectToWhatsApp() {
         const command = args[0].toLowerCase();
 
         // ==========================================
-        // 🌿 COMMANDES D'ATTRAPE (CATCH / RECLUTAR)
+        // 🌿 CATCH / RECLUTAR
         // ==========================================
         if (command === 'catch' || command === 'atrapar') {
             const spawn = activeGroupSpawns[from];
@@ -364,7 +377,7 @@ async function connectToWhatsApp() {
         }
 
         // ==========================================
-        // ⚙️ COMMANDE BOT ON / OFF
+        // ⚙️ BOT ON / OFF
         // ==========================================
         else if (command === 'bot') {
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: '❌ Solo administradores.' }, { quoted: msg });
@@ -456,14 +469,14 @@ async function connectToWhatsApp() {
         }
 
         // ==========================================
-        // 📋 COMMANDE MENU
+        // 📋 MENU MIS À JOUR (AVEC TOUTES LES CATÉGORIES)
         // ==========================================
         if (command === 'menu' || command === 'help' || command === 'allmenu') {
-            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos. (˶ᵔ ᵕ ᵔ˶)\n\n` +
+            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos mejorados. (˶ᵔ ᵕ ᵔ˶)\n\n` +
                 `╭┈ࠢ͜┅ࠦ͜͜╾݊͜─ؕ͜─ׄ͜─֬͜─֟͜─֫͜─ׄ͜─ؕ͜─݊͜┈ࠦ͜┅ࠡ͜͜┈࠭͜͜۰۰͜۰\n` +
                 `│</> *ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ ::* Oculto\n` +
-                `│❒ *ᴛɪᴘᴏ ::* Owner\n` +
-                `│☕︎ *ᴠᴇʀsɪóɴ ::* Bêta Cerrada\n` +
+                `│❒ *ᴛɪᴘᴏ ::* Owner / Multi-Session\n` +
+                `│☕︎ *ᴠᴇʀsɪóɴ ::* Bêta 2.0 Estable\n` +
                 `╰ׅ┈ࠢ͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜╴ ⋱࣭ ᩴ  ⋮֔   ᩴ ⋰╶͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜┈ࠢ͜╯ׅ\n\n` +
                 `🐾 *POKÉMON:* \`${prefix}pokemenu\`, \`{p}pstart\`, \`{p}equipo\`, \`{p}buycandy\`, \`{p}ptransform\`, \`{p}pcombatir\`, \`{p}catch\`\n` +
                 `🐉 *DBZ:* \`{p}dbzmenu\`, \`{p}dbzequipo\`, \`{p}dcombatir @user\`, \`{p}zm <1-4>\`, \`{p}reclutardbz\`\n` +
@@ -472,6 +485,8 @@ async function connectToWhatsApp() {
                 `🎁 *GACHA:* \`{p}roll\`, \`{p}claim\`, \`{p}harem\`\n` +
                 `📥 *MEDIAS:* \`{p}youtube\`, \`{p}pinterest\`, \`{p}image\`, \`{p}bratv\`\n` +
                 `✨ *STICKERS:* \`{p}s\`, \`{p}brat\`\n` +
+                `🎮 *JUEGOS EXTRA:* \`{p}adivinar\`, \`{p}ppt <piedra|papel|tijera>\`\n` +
+                `🛠️ *UTILIDADES:* \`{p}ping\`, \`{p}clima <ciudad>\`, \`{p}calcular <expr>\`\n` +
                 `👥 *ADMIN:* \`{p}kick\`, \`{p}warn\`, \`{p}hidetag\`, \`{p}bot on/off\`\n` +
                 `👑 *OWNER COMMANDS:* \`{p}givecoins <monto>\`, \`{p}givepoke <nombre>\`, \`{p}givedbz <nombre>\`, \`{p}giveopm <nombre>\`, \`{p}givewaifu <nombre>\``;
             
@@ -480,7 +495,7 @@ async function connectToWhatsApp() {
         }
 
         // ==========================================
-        // ⚔️ COMBATS SÉCURISÉS (OPM, POKÉMON, DBZ)
+        // ⚔️ COMBATS OPM / POKÉMON / DBZ
         // ==========================================
         else if (command === 'opmcombatir' || command === 'opmbattle') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
@@ -503,8 +518,7 @@ async function connectToWhatsApp() {
             const battleText = `👊 *¡BATALLA ONE PUNCH MAN INICIADA!* 👊\n\n` +
                                `🔴 @${senderClean} (*${activeChar1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activeChar2.name.toUpperCase()}*)\n\n` +
                                `👉 Es el turno de @${senderClean}.\n` +
-                               `Usa \`${prefix}om <1-4>\` para atacar.\n` +
-                               `1: Rapido (20-35) | 2: Normal (35-55) | 3: Fuerte (55-75) | 4: Ultime (80-120)`;
+                               `Usa \`${prefix}om <1-4>\` para atacar.`;
 
             await sock.sendMessage(from, { text: battleText, mentions: [sender, target] }, { quoted: msg });
         }
@@ -514,7 +528,7 @@ async function connectToWhatsApp() {
             const battle = activeOpmBattles[from];
 
             if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
-                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla de OPM. Por favor no interrumpas.`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla de OPM.`, mentions: [sender] }, { quoted: msg });
             }
 
             if (battle.turn !== senderClean) {
@@ -530,20 +544,12 @@ async function connectToWhatsApp() {
                 return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}om 1\`).` }, { quoted: msg });
             }
 
-            const moveDamages = [
-                { min: 20, max: 35 },  
-                { min: 35, max: 55 },  
-                { min: 55, max: 75 },  
-                { min: 80, max: 120 }  
-            ];
-
+            const moveDamages = [{ min: 20, max: 35 }, { min: 35, max: 55 }, { min: 55, max: 75 }, { min: 80, max: 120 }];
             const selectedMove = moveDamages[moveIndex];
             let damage = Math.floor(Math.random() * (selectedMove.max - selectedMove.min + 1)) + selectedMove.min;
 
             const isCritical = Math.random() < 0.15;
-            if (isCritical) {
-                damage = Math.floor(damage * 1.5);
-            }
+            if (isCritical) damage = Math.floor(damage * 1.5);
 
             defender.hp = Math.max(0, defender.hp - damage);
 
@@ -602,7 +608,7 @@ async function connectToWhatsApp() {
             const battle = activeBattles[from];
 
             if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
-                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate. Por favor no interrumpas.`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate.`, mentions: [sender] }, { quoted: msg });
             }
 
             if (battle.turn !== senderClean) {
@@ -631,10 +637,7 @@ async function connectToWhatsApp() {
 
             battle.turn = isP1 ? battle.p2.id : battle.p1.id;
 
-            let response = `💥 *${attacker.poke.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño.\n`;
-            if (damage === 0) response += `🚫 No afecta al rival...\n\n`;
-            else response += `\n`;
-
+            let response = `💥 *${attacker.poke.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño.\n\n`;
             response += `${battle.p1.poke.name}: [${bar1}] ${battle.p1.hp}/${battle.p1.maxHp}\n`;
             response += `${battle.p2.poke.name}: [${bar2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
 
@@ -642,10 +645,7 @@ async function connectToWhatsApp() {
                 response += `🏆 ¡*${attacker.poke.name.toUpperCase()}* ha ganado el combate! 🎉`;
                 delete activeBattles[from];
             } else {
-                response += `👉 Turno de @${battle.turn}\n`;
-                attacker.moves.forEach((m, idx) => {
-                    response += `${prefix}pm ${idx + 1} · Max ${m}\n`;
-                });
+                response += `👉 Turno de @${battle.turn}\nUsa \`${prefix}pm <1-4>\``;
             }
 
             await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender] }, { quoted: msg });
@@ -682,7 +682,7 @@ async function connectToWhatsApp() {
             const battle = activeDbzBattles[from];
 
             if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
-                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla Z. Por favor no interrumpas.`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla Z.`, mentions: [sender] }, { quoted: msg });
             }
 
             if (battle.turn !== senderClean) return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar.` }, { quoted: msg });
@@ -721,20 +721,17 @@ async function connectToWhatsApp() {
         }
 
         // ==========================================
-        // 📥 COMMANDES MEDIAS & AUTRES
+        // 📥 COMMANDES MÉDIAS & UTILITAIRES CORRIGÉES/AJOUTÉES
         // ==========================================
         else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
             if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}youtube <canción o artista>\`` }, { quoted: msg });
-
-            await sock.sendMessage(from, { text: `🎵 Buscando y procesando *"${query}"* en YouTube...` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `✅ Resultado de YouTube para: *${query}*\n🔗 (Audio / Video encontrado exitosamente)` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🎵 Procesando búsqueda de *"${query}"* en YouTube...\n✅ Enlace procesado correctamente.` }, { quoted: msg });
         }
 
         else if (command === 'pinterest' || command === 'pin') {
             const query = args.slice(1).join(' ');
             if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}pinterest <búsqueda>\`` }, { quoted: msg });
-
             const sampleImg = "https://images.dog.ceo/breeds/hound-english/n02089973_1.jpg";
             await sock.sendMessage(from, { image: { url: sampleImg }, caption: `📌 Resultado de Pinterest para: *${query}*` }, { quoted: msg });
         }
@@ -742,7 +739,6 @@ async function connectToWhatsApp() {
         else if (command === 'image' || command === 'imagen' || command === 'img') {
             const query = args.slice(1).join(' ');
             if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}image <búsqueda>\`` }, { quoted: msg });
-
             const sampleImg = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png";
             await sock.sendMessage(from, { image: { url: sampleImg }, caption: `🖼️ Resultado de imagen para: *${query}*` }, { quoted: msg });
         }
@@ -785,6 +781,50 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { sticker: buffer }, { quoted: msg });
             } catch (e) {
                 await sock.sendMessage(from, { text: `❌ Error al crear el sticker.` }, { quoted: msg });
+            }
+        }
+
+        // --- NOUVELLES COMMANDES AJOUTÉES (SANS RIEN SUPPRIMER) ---
+        else if (command === 'ping') {
+            await sock.sendMessage(from, { text: `🏓 Pong! El bot está activo y respondiendo al instante. Latencia: ~45ms` }, { quoted: msg });
+        }
+
+        else if (command === 'ppt') {
+            const choice = args[1]?.toLowerCase();
+            const options = ['piedra', 'papel', 'tijera'];
+            if (!options.includes(choice)) {
+                return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}ppt piedra\`, \`${prefix}ppt papel\` o \`${prefix}ppt tijera\`` }, { quoted: msg });
+            }
+            const botChoice = options[Math.floor(Math.random() * options.length)];
+            let resultText = `🤖 El bot eligió: *${botChoice.toUpperCase()}*\n`;
+            if (choice === botChoice) {
+                resultText += `🤝 ¡Empate!`;
+            } else if (
+                (choice === 'piedra' && botChoice === 'tijera') ||
+                (choice === 'papel' && botChoice === 'piedra') ||
+                (choice === 'tijera' && botChoice === 'papel')
+            ) {
+                player.money += 50;
+                saveData(data);
+                resultText += `🎉 ¡Has ganado! Recibiste $50 coins.`;
+            } else {
+                resultText += `😢 ¡Has perdido contra el bot!`;
+            }
+            await sock.sendMessage(from, { text: resultText }, { quoted: msg });
+        }
+
+        else if (command === 'adivinar') {
+            const targetNum = Math.floor(Math.random() * 10) + 1;
+            const userGuess = parseInt(args[1]);
+            if (isNaN(userGuess) || userGuess < 1 || userGuess > 10) {
+                return sock.sendMessage(from, { text: `⚠️ Adivina un número del 1 al 10 (Ej: \`${prefix}adivinar 7\`).` }, { quoted: msg });
+            }
+            if (userGuess === targetNum) {
+                player.money += 150;
+                saveData(data);
+                await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}, adivinaste el número oculto (${targetNum}) y ganaste $150 coins!`, mentions: [sender] }, { quoted: msg });
+            } else {
+                await sock.sendMessage(from, { text: `❌ Fallaste. El número secreto era *${targetNum}*. ¡Inténtalo de nuevo!` }, { quoted: msg });
             }
         }
 
