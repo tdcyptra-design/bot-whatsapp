@@ -1,17 +1,19 @@
 {
   "name": "team-dronix-bot",
   "version": "1.0.0",
-  "description": "Bot WhatsApp Pokémon TEAM DRONIX",
+  "description": "Bot de WhatsApp TEAM DRONIX (Baileys + MongoDB)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.13",
-    "express": "^4.19.2",
-    "qrcode-terminal": "^0.12.0"
-  },
   "engines": {
-    "node": ">=18.x"
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "express": "latest",
+    "mongodb": "latest",
+    "pino": "latest",
+    "qrcode-terminal": "latest"
   }
 }
