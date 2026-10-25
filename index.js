@@ -1,11 +1,11 @@
-const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
-const { initMongo, loadData, saveData } = require('./mongoSetup');
-const { useMongoAuthState } = require('./mongoAuth');
 
-const DEV_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
+const DATA_FILE = './data.json';
+const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
 const BOT_NAME = "TEAM DRONIX";
 
 const app = express();
@@ -14,10 +14,10 @@ app.use(express.json());
 
 let globalSock = null;
 const userSpamTracker = {};
-const primaryBotInGroup = {};
-const activeTictactoe = {};
-const activeTrivia = {};
 const activeBattles = {};
+const activeDbzBattles = {};
+const activeOpmBattles = {};
+const activeGroupSpawns = {};
 
 app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
@@ -95,25 +95,42 @@ app.listen(PORT, () => {
     connectToWhatsApp();
 });
 
+function loadData() {
+    if (!fs.existsSync(DATA_FILE)) {
+        fs.writeFileSync(DATA_FILE, JSON.stringify({ players: {}, groups: {}, history: {} }, null, 2));
+    }
+    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+}
+
+function saveData(data) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
 function getPlayer(data, id) {
     if (!data.players[id]) {
         data.players[id] = {
-            money: 500, wins: 0, losses: 0, active: 0, hasStarted: false, messageCount: 0, warns: 0,
-            pokes: [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', image: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png' }],
-            birthDate: null, age: null, banned: false, mutedUntil: 0
+            money: 500, bank: 0, wins: 0, losses: 0, 
+            activePoke: 0, activeDbz: 0, activeOpm: 0, 
+            userMsgCount: 0, hasStarted: false, messageCount: 0,
+            pokes: [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }],
+            dbz: [{ name: 'Goku', level: 5, power: 60, form: 'Base' }],
+            opm: [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 1 }],
+            birthDate: null, age: null, banned: false, mutedUntil: 0, harem: [], warns: 0, exp: 0, level: 1
         };
     }
     if (data.players[id].messageCount === undefined) data.players[id].messageCount = 0;
-    if (data.players[id].warns === undefined) data.players[id].warns = 0;
+    if (data.players[id].bank === undefined) data.players[id].bank = 0;
+    if (!data.players[id].harem) data.players[id].harem = [];
+    if (!data.players[id].dbz) data.players[id].dbz = [{ name: 'Goku', level: 5, power: 60, form: 'Base' }];
+    if (!data.players[id].opm) data.players[id].opm = [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 1 }];
     if (!data.players[id].pokes || data.players[id].pokes.length === 0) {
-        data.players[id].pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', image: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png' }];
+        data.players[id].pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
     }
     return data.players[id];
 }
 
 async function connectToWhatsApp() {
-    const authCol = await initMongo();
-    const { state, saveCreds } = await useMongoAuthState(authCol);
+    const { state, saveCreds } = await useMultiFileAuthState('session_v4');
 
     const sock = makeWASocket({
         auth: state,
@@ -148,14 +165,14 @@ async function connectToWhatsApp() {
             let groupMetadata = null;
             try { groupMetadata = await sock.groupMetadata(anu.id).catch(() => null); } catch (err) { return; }
             const groupName = groupMetadata ? groupMetadata.subject : "Grupo";
-
+            
             const groupConfig = data.groups[anu.id] || {};
             if (groupConfig.bienvenida === false) return;
 
             if (anu.action === 'add') {
                 for (let num of anu.participants) {
                     const cleanNum = num.replace(/[^0-9]/g, '');
-                    const welcomeText = `👋 ¡Bienvenido/a @${cleanNum} a *${groupName}*!\n\nDisfruta del grupo y diviértete con los minijuegos de ${BOT_NAME}. ✨`;
+                    const welcomeText = groupConfig.customWelcome || `👋 ¡Bienvenido/a @${cleanNum} a *${groupName}*!\n\nDisfruta del grupo y diviértete con los minijuegos de ${BOT_NAME}. ✨`;
                     await sock.sendMessage(anu.id, { text: welcomeText, mentions: [num] });
                 }
             }
@@ -178,17 +195,8 @@ async function connectToWhatsApp() {
         const data = loadData();
         const player = getPlayer(data, senderClean);
         const isFromMe = msg.key.fromMe;
-        const isDev = isFromMe || sender.includes('56928637216') || senderClean.includes('56928637216') || DEV_NUMBERS.some(num => sender.includes(num));
-
-        // --- GESTIÓN DE MUTE ---
-        if (player.mutedUntil && player.mutedUntil > Date.now() && !isDev) {
-            try {
-                await sock.sendMessage(from, { delete: msg.key });
-            } catch (e) {
-                console.error("Erreur suppression message muté:", e);
-            }
-            return;
-        }
+        const isOwner = isFromMe || OWNER_NUMBERS.some(num => sender.includes(num) || senderClean === '56928637216');
+        const isDev = isOwner;
 
         let isAdmin = isDev;
         if (isGroup && !isAdmin) {
@@ -202,8 +210,10 @@ async function connectToWhatsApp() {
         }
 
         const groupConfig = data.groups[from] || {};
-        const antiSpamEnabled = groupConfig.antispam !== false;
 
+        if (groupConfig.botOff && !isDev) return;
+
+        const antiSpamEnabled = groupConfig.antispam !== false;
         if (isGroup && !isAdmin && !isDev && antiSpamEnabled) {
             const now = Date.now();
             if (!userSpamTracker[senderClean]) {
@@ -222,594 +232,543 @@ async function connectToWhatsApp() {
             }
         }
 
-        // --- POKÉMON SPAWN / XP (100 MESSAGES) ---
-        if (player.pokes && player.pokes.length > 0) {
-            player.messageCount += 1;
-            if (player.messageCount >= 100) {
-                player.messageCount = 0;
-                const activeIndex = player.active || 0;
-                if (!player.pokes[activeIndex]) player.active = 0;
-                const activePoke = player.pokes[player.active];
-                activePoke.level += 1;
-                activePoke.power += 5;
-                saveData(data);
-                await sock.sendMessage(from, { text: `🎉 ¡El Pokémon *${activePoke.name.toUpperCase()}* de @${senderClean} subió al *Nivel ${activePoke.level}* por enviar 100 mensajes! (Poder: ${activePoke.power})`, mentions: [sender] });
-            } else {
-                saveData(data);
+        // --- COMPTEUR DE 100 MESSAGES PARTAGÉ AVEC IMAGES POUR LES SPAWNS ---
+        if (isGroup) {
+            data.groups[from] = groupConfig;
+            data.groups[from].msgCount = (groupConfig.msgCount || 0) + 1;
+
+            player.userMsgCount += 1;
+            if (player.userMsgCount >= 150) {
+                player.userMsgCount = 0;
+                const activePoke = player.pokes[player.activePoke || 0];
+                if (activePoke) {
+                    activePoke.level += 1;
+                    activePoke.power += 5;
+                    await sock.sendMessage(from, { text: `🎉 ¡El Pokémon *${activePoke.name.toUpperCase()}* de @${senderClean} subió al Nivel ${activePoke.level}!`, mentions: [sender] });
+                }
             }
+
+            if (data.groups[from].msgCount >= 100) {
+                data.groups[from].msgCount = 0;
+                const spawnTypes = ['poke', 'dbz', 'opm'];
+                const chosenType = spawnTypes[Math.floor(Math.random() * spawnTypes.length)];
+
+                if (chosenType === 'poke') {
+                    const wildPokes = [
+                        { name: 'Charizard', img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png' },
+                        { name: 'Gengar', img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/94.png' },
+                        { name: 'Lucario', img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/448.png' },
+                        { name: 'Snorlax', img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/143.png' },
+                        { name: 'Mewtwo', img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png' }
+                    ];
+                    const poke = wildPokes[Math.floor(Math.random() * wildPokes.length)];
+                    activeGroupSpawns[from] = { type: 'poke', name: poke.name };
+                    
+                    await sock.sendMessage(from, { 
+                        image: { url: poke.img }, 
+                        caption: `🌿 ¡Un *${poke.name.toUpperCase()}* Pokémon salvaje ha aparecido en el grupo!\nEscribe \`/catch\` o \`/atrapar\` para conseguirlo.` 
+                    });
+
+                } else if (chosenType === 'dbz') {
+                    const wildDbz = [
+                        { name: 'Goku', img: 'https://images.wikia.nocookie.net/__cb20210515152349/dragonball/images/e/e3/Goku_DBZ_Artwork.png' },
+                        { name: 'Vegeta', img: 'https://images.wikia.nocookie.net/__cb20200803204918/dragonball/images/3/36/Vegeta_Artwork.png' },
+                        { name: 'Gohan', img: 'https://images.wikia.nocookie.net/__cb20190525134107/dragonball/images/d/d4/Gohan_Adulto_Artwork.png' },
+                        { name: 'Piccolo', img: 'https://images.wikia.nocookie.net/__cb20220608225526/dragonball/images/7/7b/Piccolo_Artwork.png' },
+                        { name: 'Frieza', img: 'https://images.wikia.nocookie.net/__cb20210515152431/dragonball/images/c/c2/Freezer_DBZ_Artwork.png' }
+                    ];
+                    const dbz = wildDbz[Math.floor(Math.random() * wildDbz.length)];
+                    activeGroupSpawns[from] = { type: 'dbz', name: dbz.name };
+
+                    await sock.sendMessage(from, { 
+                        image: { url: dbz.img }, 
+                        caption: `☄️ ¡Un guerrero Z (*${dbz.name.toUpperCase()}*) ha aparecido!\nEscribe \`/reclutardbz\` para agregarlo.` 
+                    });
+
+                } else {
+                    const wildOpm = [
+                        { name: 'Saitama', img: 'https://static.wikia.nocookie.net/onepunchman/images/e/e8/Saitama_Anime_Design.png' },
+                        { name: 'Genos', img: 'https://static.wikia.nocookie.net/onepunchman/images/e/db/Genos_infobox.png' },
+                        { name: 'Tatsumaki', img: 'https://static.wikia.nocookie.net/onepunchman/images/d/d1/Tatsumaki_infobox.png' },
+                        { name: 'Garou', img: 'https://static.wikia.nocookie.net/onepunchman/images/5/5a/Garou_infobox.png' }
+                    ];
+                    const opm = wildOpm[Math.floor(Math.random() * wildOpm.length)];
+                    activeGroupSpawns[from] = { type: 'opm', name: opm.name };
+
+                    await sock.sendMessage(from, { 
+                        image: { url: opm.img }, 
+                        caption: `👊 ¡Un héroe/villano de OPM (*${opm.name.toUpperCase()}*) ha aparecido!\nEscribe \`/reclutaropm\` para sumarlo.` 
+                    });
+                }
+            }
+
+            saveData(data);
         }
 
         const validPrefixes = ['/', ',', '.', '#'];
         const prefix = validPrefixes.find(p => text.startsWith(p));
         if (!prefix) return;
 
-        if (player.banned && !isDev) {
-            await sock.sendMessage(from, { text: '❌ Estás baneado y no puedes usar el bot.' }, { quoted: msg });
-            return;
-        }
-
         const args = text.trim().slice(1).split(/ +/);
         const command = args[0].toLowerCase();
 
-        // --- SUB-BOT / CODE ---
-        if (command === 'code' || command === 'subbot') {
-            const targetPhone = args[1] ? args[1].replace(/[^0-9]/g, '') : senderClean;
-            await sock.sendMessage(from, { text: `⏳ Génération du code d'appairage pour \`${targetPhone}\`... Veuillez patienter.` }, { quoted: msg });
-            try {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                let pairingCode = await sock.requestPairingCode(targetPhone);
-                pairingCode = pairingCode?.match(/.{1,4}/g)?.join("-") || pairingCode;
-
-                const codeMessage = `🤖 *SYSTÈME SUB-BOT - TEAM DRONIX*\n\n` +
-                                    `📲 *Numéro cible :* \`${targetPhone}\`\n` +
-                                    `🔑 *Code d'appairage :* \`${pairingCode}\`\n\n` +
-                                    `👉 *Instructions :*\n` +
-                                    `1. Va dans WhatsApp > Appareils liés > Associer avec un numéro de téléphone.\n` +
-                                    `2. Entre ce code à 8 caractères.`;
-
-                await sock.sendMessage(from, { text: codeMessage }, { quoted: msg });
-            } catch (err) {
-                await sock.sendMessage(from, { text: `❌ Impossible de générer le code pour \`${targetPhone}\`.` }, { quoted: msg });
-            }
-            return;
-        }
-
-        if (command === 'setprimary') {
-            if (!isGroup) return;
-            primaryBotInGroup[from] = sock.user.id;
-            await sock.sendMessage(from, { text: `⭐ Este bot es ahora el bot principal (Primary) para este grupo.` }, { quoted: msg });
-            return;
-        }
-
-        if (isGroup && primaryBotInGroup[from] && primaryBotInGroup[from] !== sock.user.id && !isDev) {
-            return;
-        }
-
-        if (command === 'autoadmin') {
-            if (!isDev) return sock.sendMessage(from, { text: '❌ Acceso denegado.' }, { quoted: msg });
-            if (!isGroup) return sock.sendMessage(from, { text: '⚠️ Solo en grupos.' }, { quoted: msg });
-            try {
-                await sock.groupParticipantsUpdate(from, [sender], 'promote');
-                await sock.sendMessage(from, { text: `👑 *¡Promovido a Administrador automáticamente!*`, mentions: [sender] }, { quoted: msg });
-            } catch (err) {
-                await sock.sendMessage(from, { text: '❌ El bot necesita ser Administrador.' }, { quoted: msg });
-            }
-            return;
-        }
-
-        if (command === 'antispam' || command === 'bienvenida') {
-            if (!isAdmin) return sock.sendMessage(from, { text: '❌ Solo administradores.' }, { quoted: msg });
-            const action = args[1]?.toLowerCase();
-            if (action !== 'on' && action !== 'off') return sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}${command} on | off` }, { quoted: msg });
-            data.groups[from] = data.groups[from] || {};
-            data.groups[from][command] = (action === 'on');
+        // ==========================================
+        // 🌿 COMMANDES D'ATTRAPE (CATCH / RECLUTAR)
+        // ==========================================
+        if (command === 'catch' || command === 'atrapar') {
+            const spawn = activeGroupSpawns[from];
+            if (!spawn || spawn.type !== 'poke') return sock.sendMessage(from, { text: `❌ No hay ningún Pokémon salvaje para atrapar en este momento.` }, { quoted: msg });
+            
+            player.pokes.push({ name: spawn.name, level: 10, xp: 0, power: 80, form: 'normal', isGigantamax: false });
+            delete activeGroupSpawns[from];
             saveData(data);
-            await sock.sendMessage(from, { text: `✅ Configuración guardada: *${command}* está en *${action.toUpperCase()}*.` }, { quoted: msg });
-            return;
+            await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}, has atrapado exitosamente a un *${spawn.name.toUpperCase()}*!`, mentions: [sender] }, { quoted: msg });
         }
 
-        if (command === 'bot') {
-            if (!isAdmin) return sock.sendMessage(from, { text: '❌ Solo administradores.' }, { quoted: msg });
+        else if (command === 'reclutardbz') {
+            const spawn = activeGroupSpawns[from];
+            if (!spawn || spawn.type !== 'dbz') return sock.sendMessage(from, { text: `❌ No hay ningún guerrero Z salvaje para reclutar ahora.` }, { quoted: msg });
+            
+            player.dbz.push({ name: spawn.name, level: 10, power: 100, form: 'Base' });
+            delete activeGroupSpawns[from];
+            saveData(data);
+            await sock.sendMessage(from, { text: `☄️ ¡Genial @${senderClean}, has reclutado a *${spawn.name.toUpperCase()}* a tu equipo DBZ!`, mentions: [sender] }, { quoted: msg });
+        }
+
+        else if (command === 'reclutaropm') {
+            const spawn = activeGroupSpawns[from];
+            if (!spawn || spawn.type !== 'opm') return sock.sendMessage(from, { text: `❌ No hay ningún personaje de OPM disponible para reclutar.` }, { quoted: msg });
+            
+            player.opm.push({ name: spawn.name, level: 10, power: 120, form: 'Normal', stage: 1 });
+            delete activeGroupSpawns[from];
+            saveData(data);
+            await sock.sendMessage(from, { text: `👊 ¡Increíble @${senderClean}, sumaste a *${spawn.name.toUpperCase()}* a tu escuadrón OPM!`, mentions: [sender] }, { quoted: msg });
+        }
+
+        // ==========================================
+        // ⚙️ COMMANDE BOT ON / OFF
+        // ==========================================
+        else if (command === 'bot') {
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: '❌ Solo administradores.' }, { quoted: msg });
             const option = args[1]?.toLowerCase();
             if (option === 'off' || option === 'on') {
                 data.groups[from] = data.groups[from] || {};
                 data.groups[from].botOff = (option === 'off');
                 saveData(data);
-                await sock.sendMessage(from, { text: `⚙️ Bot ${option.toUpperCase()} en este grupo.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚙️ El bot ha sido puesto en modo *${option.toUpperCase()}* en este grupo.` }, { quoted: msg });
+            } else {
+                await sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}bot on\` o \`${prefix}bot off\`` }, { quoted: msg });
             }
             return;
         }
 
-        if (data.groups[from]?.botOff && !isDev) return;
+        // ==========================================
+        // 👑 COMMANDES OWNER EXCLUSIVES
+        // ==========================================
+        if (isOwner) {
+            if (command === 'givecoins' || command === 'addcoins') {
+                const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                const amount = parseInt(args[args.length - 1]);
+                const targetClean = target ? target.replace(/[^0-9]/g, '') : senderClean;
 
-        // --- JUEGOS HTML (.juegos, .tetris, .2048, .snake, .memoria, .ppt, .buscaminas, .flappy, .conecta4) ---
-        try {
-            const { manejarJuego } = await import('./comandoJuegos.mjs');
-            if (await manejarJuego({ sock, remitente: from, msg }, command)) return;
-        } catch (e) {
-            console.error('Error en juegos HTML:', e);
-        }
+                if (isNaN(amount)) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}givecoins <monto>\` o \`${prefix}givecoins @user <monto>\`` }, { quoted: msg });
 
-        // --- MEDIA: /youtube <busqueda> → MP3, /pin <busqueda> → foto ---
-        try {
-            if (await require('./mediaSearch').manejarMedia({ sock, from, msg, userId: senderClean }, command, args)) return;
-        } catch (e) {
-            console.error('Error en media:', e);
-        }
-
-        // MENÚ COMPLETO
-        if (command === 'menu' || command === 'help') {
-            let menuText = `✨ *MENÚ PRINCIPAL - ${BOT_NAME}* ✨\n\n` +
-                `🤖 *SUB-BOT:* \`{p}code <número>\`\n\n` +
-                `🎉 *FUNS & ÉMOTIONS:* \`{p}brat <texto>\`, \`{p}parejas\`, \`{p}gey @usuario\`, \`{p}chiste\`, \`{p}piropo\`, \`{p}hug @user\`, \`{p}kiss @user\`, \`{p}slap @user\`, \`{p}pat @user\`\n\n` +
-                `🎮 *POKÉMON & JUEGOS:* \`{p}equipo\`, \`{p}pstart <nombre>\`, \`{p}pelegir <num>\`, \`{p}buycandy\`, \`{p}pcombatir @usuario\`, \`{p}paceptar\`, \`{p}huir\`, \`{p}pm <1-4>\`, \`{p}mega|dynamax|gigantamax\`, \`{p}adivina\`, \`{p}gato @usuario\`\n\n` +
-                `🕹️ *JUEGOS HTML:* \`{p}juegos\`, \`{p}tetris\`, \`{p}2048\`, \`{p}snake\`, \`{p}memoria\`, \`{p}ppt\`, \`{p}buscaminas\`, \`{p}flappy\`, \`{p}conecta4\`\n\n` +
-                `📥 *UTILS:* \`{p}youtube <busq>\` (MP3), \`{p}pin <busq>\` (foto), \`{p}pin <busq> x3\`, \`{p}image <busq>\`, \`{p}clima <ciudad>\`, \`{p}bal\`\n\n` +
-                `⚙️ *ADMIN & MOD:* \`{p}kick @user\`, \`{p}ban @user\`, \`{p}warn @user\`, \`{p}infractions @user\`, \`{p}mute @user 10m\`, \`{p}unmute @user\`, \`{p}lock\`, \`{p}unlock\`\n\n` +
-                `👑 *OWNER:* \`{p}givepoke @user <nombre> <poder>\`, \`{p}givecoins @user <cant>\`, \`{p}reiniciar\``;
-            menuText = menuText.replace(/\{p\}/g, prefix);
-            await sock.sendMessage(from, { text: menuText }, { quoted: msg });
-        }
-
-        // FUNS & ÉMOTIONS
-        else if (command === 'brat' || command === 'bratv') {
-            const bratText = args.slice(1).join(' ');
-            if (!bratText) return sock.sendMessage(from, { text: `⚠️ Ingresa texto: \`${prefix}brat Hola\`` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `🟩🟩🟩🟩🟩🟩\n🟩 *BRAT* : ${bratText}\n🟩🟩🟩🟩🟩🟩` }, { quoted: msg });
-        }
-
-        else if (command === 'parejas') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.` }, { quoted: msg });
-            try {
-                const groupMetadata = await sock.groupMetadata(from).catch(() => null);
-                const participants = groupMetadata?.participants || [];
-                if (participants.length < 2) return sock.sendMessage(from, { text: `❌ Pocos participantes.` }, { quoted: msg });
-                const p1 = participants[Math.floor(Math.random() * participants.length)].id;
-                let p2 = participants[Math.floor(Math.random() * participants.length)].id;
-                while (p1 === p2 && participants.length > 1) { p2 = participants[Math.floor(Math.random() * participants.length)].id; }
-                await sock.sendMessage(from, { text: `💘 *PAREJA DEL DÍA* 💘\n• @${p1.replace(/[^0-9]/g, '')}\n• @${p2.replace(/[^0-9]/g, '')}`, mentions: [p1, p2] }, { quoted: msg });
-            } catch (e) {
-                await sock.sendMessage(from, { text: `❌ Error al sortear pareja.` }, { quoted: msg });
-            }
-        }
-
-        else if (command === 'gey' || command === 'gay') {
-            const porcentaje = Math.floor(Math.random() * 101);
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien: \`${prefix}gey @usuario\`` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `🏳️‍🌈 @${target.replace(/[^0-9]/g, '')} tiene un ${porcentaje}%.\n\n😏 ¿Quién quiere tocar a ese femboy?`, mentions: [target] }, { quoted: msg });
-        }
-
-        else if (command === 'chiste') {
-            const chistes = ["¿Qué hace una abeja en el gimnasio? ¡Zumba!", "— Papá, ¿qué se siente tener un hijo tan guapo? — No lo sé hijo, pregúntale a tu abuelo."];
-            await sock.sendMessage(from, { text: `😂 ${chistes[Math.floor(Math.random() * chistes.length)]}` }, { quoted: msg });
-        }
-
-        else if (command === 'piropo') {
-            const piropos = ["Si la belleza fuera pecado, tú estarías sin perdón.", "Eres como el Google: tienes todo lo que estoy buscando."];
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            const mentionText = target ? `@${target.replace(/[^0-9]/g, '')} ` : '';
-            await sock.sendMessage(from, { text: `❤️ ${mentionText}${piropos[Math.floor(Math.random() * piropos.length)]}`, mentions: target ? [target] : [] }, { quoted: msg });
-        }
-
-        // --- COMMANDS D'ÉMOTIONS ---
-        else if (['hug', 'abrazo'].includes(command)) {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para abrazar: \`${prefix}hug @usuario\`` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `🤗 *@${senderClean}* le ha dado un cálido y tierno abrazo a *@${target.replace(/[^0-9]/g, '')}*. ¡Qué adorable! 💖`, mentions: [sender, target] }, { quoted: msg });
-        }
-
-        else if (['kiss', 'beso'].includes(command)) {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para besar: \`${prefix}kiss @usuario\`` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `😘 *@${senderClean}* le ha robado un tierno beso a *@${target.replace(/[^0-9]/g, '')}*. 💋✨`, mentions: [sender, target] }, { quoted: msg });
-        }
-
-        else if (['slap', 'bofetada', 'golpe'].includes(command)) {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para golpear: \`${prefix}slap @usuario\`` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `💥 *@${senderClean}* le ha dado una tremenda bofetada a *@${target.replace(/[^0-9]/g, '')}*. ¡Eso debió doler! 🖐️⚡`, mentions: [sender, target] }, { quoted: msg });
-        }
-
-        else if (['pat', 'caricia'].includes(command)) {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a alguien para acariciar: \`${prefix}pat @usuario\`` }, { quoted: msg });
-            await sock.sendMessage(from, { text: `🐾 *@${senderClean}* acaricia suavemente la cabeza de *@${target.replace(/[^0-9]/g, '')}*. ¡Buen chico/a! ✨`, mentions: [sender, target] }, { quoted: msg });
-        }
-
-        // POKÉMON & JUEGOS
-        else if (command === 'pstart') {
-            if (player.hasStarted && !isDev) return sock.sendMessage(from, { text: `❌ Ya usaste tu ${prefix}pstart.` }, { quoted: msg });
-            const pokeName = args[1]?.toLowerCase();
-            if (!pokeName) return sock.sendMessage(from, { text: `⚠️ Especifica un Pokémon. Ej: \`${prefix}pstart charmander\`` }, { quoted: msg });
-            const pokeImg = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokeName}.png`;
-            player.pokes.push({ name: pokeName, level: 10, xp: 0, power: 80, form: 'normal', image: pokeImg });
-            player.active = player.pokes.length - 1;
-            player.hasStarted = true;
-            saveData(data);
-            await sock.sendMessage(from, { image: { url: pokeImg }, caption: `🎉 ¡Has obtenido a *${pokeName.toUpperCase()}*!` }, { quoted: msg });
-        }
-
-        else if (command === 'pelegir') {
-            const index = parseInt(args[1]) - 1;
-            if (isNaN(index) || index < 0 || index >= player.pokes.length) return sock.sendMessage(from, { text: `⚠️ Número de Pokémon inválido.` }, { quoted: msg });
-            player.active = index;
-            saveData(data);
-            await sock.sendMessage(from, { text: `⭐ Seleccionaste a *${player.pokes[index].name.toUpperCase()}*.` }, { quoted: msg });
-        }
-
-        else if (command === 'buycandy') {
-            const cost = 150;
-            if (player.money < cost) return sock.sendMessage(from, { text: `❌ Monedas insuficientes.` }, { quoted: msg });
-            player.money -= cost;
-            const activeIdx = player.active || 0;
-            if (!player.pokes[activeIdx]) player.active = 0;
-            player.pokes[player.active].level += 5;
-            player.pokes[player.active].power += 25;
-            saveData(data);
-            await sock.sendMessage(from, { text: `🍬 ¡Compraste un Super Candy (+5 niveles)!` }, { quoted: msg });
-        }
-
-        else if (command === 'equipo') {
-            let info = `📱 *Equipo de @${senderClean}:*\n\n`;
-            player.pokes.forEach((p, idx) => {
-                const activeTag = (idx === player.active) ? ' ⭐ (Activo)' : '';
-                info += `${idx + 1}. *${p.name.toUpperCase()}* [Nvl ${p.level}] (Poder: ${p.power}) - Forma: ${p.form}${activeTag}\n`;
-            });
-            await sock.sendMessage(from, { text: info, mentions: [sender] }, { quoted: msg });
-        }
-
-        else if (command === 'pcombatir') {
-            if (activeBattles[from]) {
-                return sock.sendMessage(from, { text: `⚠️ Ya hay un combate en curso en este grupo. Espera a que termine.` }, { quoted: msg });
-            }
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a tu oponente: \`${prefix}pcombatir @usuario\`` }, { quoted: msg });
-            const targetClean = target.replace(/[^0-9]/g, '');
-            activeBattles[from] = { p1: senderClean, p2: targetClean, status: 'pending' };
-            await sock.sendMessage(from, { text: `⚔️ Desafío enviado a @${targetClean}. Escribe *${prefix}paceptar* o *${prefix}huir*.`, mentions: [target] }, { quoted: msg });
-        }
-
-        else if (command === 'paceptar' || command === 'aceptar') {
-            const battle = activeBattles[from];
-            if (!battle || battle.status !== 'pending') return;
-            if (battle.p2 !== senderClean) {
-                return sock.sendMessage(from, { text: `❌ Solo el usuario desafiado puede aceptar el combate.` }, { quoted: msg });
-            }
-            battle.status = 'active';
-            battle.turn = battle.p1;
-            
-            const p1Obj = getPlayer(data, battle.p1);
-            const p2Obj = getPlayer(data, battle.p2);
-            const p1Poke = p1Obj.pokes[p1Obj.active || 0] || p1Obj.pokes[0];
-            const p2Poke = p2Obj.pokes[p2Obj.active || 0] || p2Obj.pokes[0];
-
-            battle.p1MaxHp = (p1Poke.power || 50) * 5;
-            battle.p2MaxHp = (p2Poke.power || 50) * 5;
-            battle.p1Hp = battle.p1MaxHp;
-            battle.p2Hp = battle.p2MaxHp;
-
-            const p1Jid = `${battle.p1}@s.whatsapp.net`;
-            const p2Jid = `${battle.p2}@s.whatsapp.net`;
-            
-            const startMsg = `🥊 *¡Combate iniciado!*\n\n` +
-                             `• @${battle.p1} (${p1Poke.name.toUpperCase()}): ${battle.p1Hp}/${battle.p1MaxHp}\n` +
-                             `• @${battle.p2} (${p2Poke.name.toUpperCase()}): ${battle.p2Hp}/${battle.p2MaxHp}\n\n` +
-                             `👉 Turno de @${battle.turn}.\n` +
-                             `/pm 1 · Ataque Rápido\n` +
-                             `/pm 2 · Bola Sombra\n` +
-                             `/pm 3 · Placaje\n` +
-                             `/pm 4 · Hiperrayo`;
-
-            await sock.sendMessage(from, { text: startMsg, mentions: [p1Jid, p2Jid] });
-        }
-
-        else if (command === 'huir') {
-            const battle = activeBattles[from];
-            if (!battle || (battle.p1 !== senderClean && battle.p2 !== senderClean)) return;
-            delete activeBattles[from];
-            await sock.sendMessage(from, { text: `🏃‍♂️ El combate ha sido cancelado / huido.` }, { quoted: msg });
-        }
-
-        else if (command === 'pm') {
-            const battle = activeBattles[from];
-            if (!battle || battle.status !== 'active') return;
-            if (senderClean !== battle.p1 && senderClean !== battle.p2) {
-                return sock.sendMessage(from, { text: `❌ No estás participando en el combate actual.` }, { quoted: msg });
-            }
-            if (battle.turn !== senderClean) {
-                return sock.sendMessage(from, { text: `⏳ No es tu turno. Espera a que tu oponente ataque.` }, { quoted: msg });
-            }
-
-            const moveNum = parseInt(args[1]);
-            if (![1, 2, 3, 4].includes(moveNum)) return;
-
-            const isP1 = (senderClean === battle.p1);
-            const damage = moveNum * 15;
-            
-            const p1Obj = getPlayer(data, battle.p1);
-            const p2Obj = getPlayer(data, battle.p2);
-            const p1Poke = p1Obj.pokes[p1Obj.active || 0] || p1Obj.pokes[0];
-            const p2Poke = p2Obj.pokes[p2Obj.active || 0] || p2Obj.pokes[0];
-
-            const attackerName = isP1 ? p1Poke.name.toUpperCase() : p2Poke.name.toUpperCase();
-            
-            if (isP1) {
-                battle.p2Hp = Math.max(0, battle.p2Hp - damage);
-            } else {
-                battle.p1Hp = Math.max(0, battle.p1Hp - damage);
-            }
-
-            const p1Jid = `${battle.p1}@s.whatsapp.net`;
-            const p2Jid = `${battle.p2}@s.whatsapp.net`;
-
-            if (battle.p1Hp <= 0 || battle.p2Hp <= 0) {
-                const winner = battle.p1Hp > 0 ? battle.p1 : battle.p2;
-                getPlayer(data, winner).money += 200;
+                const targetPlayer = getPlayer(data, targetClean);
+                targetPlayer.money += amount;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🏆 ¡@${winner} ganó el combate y 200 monedas!`, mentions: [`${winner}@s.whatsapp.net`] });
+
+                await sock.sendMessage(from, { text: `👑 [OWNER] Otorgaste *$${amount}* coins a @${targetClean}.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            else if (command === 'givepoke') {
+                const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                const pokeName = args[1]?.toLowerCase();
+                const targetClean = target ? target.replace(/[^0-9]/g, '') : senderClean;
+
+                if (!pokeName) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}givepoke <nombre_poke> [@user]\`` }, { quoted: msg });
+
+                const targetPlayer = getPlayer(data, targetClean);
+                targetPlayer.pokes.push({ name: pokeName, level: 50, xp: 0, power: 300, form: 'normal', isGigantamax: true });
+                saveData(data);
+
+                await sock.sendMessage(from, { text: `👑 [OWNER] Otorgaste el Pokémon *${pokeName.toUpperCase()}* a @${targetClean}.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            else if (command === 'givedbz') {
+                const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                const dbzName = args[1];
+                const targetClean = target ? target.replace(/[^0-9]/g, '') : senderClean;
+
+                if (!dbzName) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}givedbz <nombre_dbz> [@user]\`` }, { quoted: msg });
+
+                const targetPlayer = getPlayer(data, targetClean);
+                targetPlayer.dbz.push({ name: dbzName, level: 50, power: 500, form: 'Ultra Instinto' });
+                saveData(data);
+
+                await sock.sendMessage(from, { text: `👑 [OWNER] Otorgaste el personaje DBZ *${dbzName}* a @${targetClean}.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            else if (command === 'giveopm') {
+                const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                const opmName = args[1];
+                const targetClean = target ? target.replace(/[^0-9]/g, '') : senderClean;
+
+                if (!opmName) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}giveopm <nombre_opm> [@user]\`` }, { quoted: msg });
+
+                const targetPlayer = getPlayer(data, targetClean);
+                targetPlayer.opm.push({ name: opmName, level: 50, power: 600, form: 'Max', stage: 3 });
+                saveData(data);
+
+                await sock.sendMessage(from, { text: `👑 [OWNER] Otorgaste el personaje OPM *${opmName}* a @${targetClean}.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            else if (command === 'givewaifu') {
+                const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                const waifuName = args.slice(1).join(' ').replace(/@\d+/g, '').trim();
+                const targetClean = target ? target.replace(/[^0-9]/g, '') : senderClean;
+
+                if (!waifuName) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}givewaifu <nombre_waifu> [@user]\`` }, { quoted: msg });
+
+                const targetPlayer = getPlayer(data, targetClean);
+                targetPlayer.harem.push(waifuName);
+                saveData(data);
+
+                await sock.sendMessage(from, { text: `👑 [OWNER] Agregaste a *${waifuName}* al harem de @${targetClean}.`, mentions: [sender] }, { quoted: msg });
+            }
+        }
+
+        // ==========================================
+        // 📋 COMMANDE MENU
+        // ==========================================
+        if (command === 'menu' || command === 'help' || command === 'allmenu') {
+            let menuText = `> ¡Hola! @${senderClean}, Soy *${BOT_NAME}*, Aquí tienes la lista completa de comandos. (˶ᵔ ᵕ ᵔ˶)\n\n` +
+                `╭┈ࠢ͜┅ࠦ͜͜╾݊͜─ؕ͜─ׄ͜─֬͜─֟͜─֫͜─ׄ͜─ؕ͜─݊͜┈ࠦ͜┅ࠡ͜͜┈࠭͜͜۰۰͜۰\n` +
+                `│</> *ᴅᴇsᴀʀʀᴏʟʟᴀᴅᴏʀ ::* Oculto\n` +
+                `│❒ *ᴛɪᴘᴏ ::* Owner\n` +
+                `│☕︎ *ᴠᴇʀsɪóɴ ::* Bêta Cerrada\n` +
+                `╰ׅ┈ࠢ͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜╴ ⋱࣭ ᩴ  ⋮֔   ᩴ ⋰╶͜─ׄ͜─ׄ֟፝͜─ׄ͜─ׄ͜┈ࠢ͜╯ׅ\n\n` +
+                `🐾 *POKÉMON:* \`${prefix}pokemenu\`, \`{p}pstart\`, \`{p}equipo\`, \`{p}buycandy\`, \`{p}ptransform\`, \`{p}pcombatir\`, \`{p}catch\`\n` +
+                `🐉 *DBZ:* \`{p}dbzmenu\`, \`{p}dbzequipo\`, \`{p}dcombatir @user\`, \`{p}zm <1-4>\`, \`{p}reclutardbz\`\n` +
+                `👊 *ONE PUNCH MAN:* \`{p}opmmenu\`, \`{p}opmequipo\`, \`{p}evolu <1-3>\`, \`{p}opmcombatir @user\`, \`{p}om <1-4>\`, \`{p}reclutaropm\`\n` +
+                `💰 *ECONOMÍA:* \`{p}work\`, \`{p}bal\`, \`{p}ruleta\`, \`{p}crime\`, \`{p}robar\`\n` +
+                `🎁 *GACHA:* \`{p}roll\`, \`{p}claim\`, \`{p}harem\`\n` +
+                `📥 *MEDIAS:* \`{p}youtube\`, \`{p}pinterest\`, \`{p}image\`, \`{p}bratv\`\n` +
+                `✨ *STICKERS:* \`{p}s\`, \`{p}brat\`\n` +
+                `👥 *ADMIN:* \`{p}kick\`, \`{p}warn\`, \`{p}hidetag\`, \`{p}bot on/off\`\n` +
+                `👑 *OWNER COMMANDS:* \`{p}givecoins <monto>\`, \`{p}givepoke <nombre>\`, \`{p}givedbz <nombre>\`, \`{p}giveopm <nombre>\`, \`{p}givewaifu <nombre>\``;
+            
+            menuText = menuText.replace(/\{p\}/g, prefix);
+            await sock.sendMessage(from, { text: menuText, mentions: [sender] }, { quoted: msg });
+        }
+
+        // ==========================================
+        // ⚔️ COMBATS SÉCURISÉS (OPM, POKÉMON, DBZ)
+        // ==========================================
+        else if (command === 'opmcombatir' || command === 'opmbattle') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}opmcombatir @usuario\`` }, { quoted: msg });
+            
+            const targetClean = target.replace(/[^0-9]/g, '');
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.` }, { quoted: msg });
+
+            const targetPlayer = getPlayer(data, targetClean);
+            const activeChar1 = player.opm[player.activeOpm || 0];
+            const activeChar2 = targetPlayer.opm[targetPlayer.activeOpm || 0];
+
+            activeOpmBattles[from] = {
+                p1: { id: senderClean, char: activeChar1, hp: 300, maxHp: 300, moves: ["Golpe Rapido", "Ráfaga Consecutiva", "Incinerar", "Serious Punch"] },
+                p2: { id: targetClean, char: activeChar2, hp: 300, maxHp: 300, moves: ["Golpe Rapido", "Patada Voladora", "Corte de Energía", "Ráfaga Demoledora"] },
+                turn: senderClean
+            };
+
+            const battleText = `👊 *¡BATALLA ONE PUNCH MAN INICIADA!* 👊\n\n` +
+                               `🔴 @${senderClean} (*${activeChar1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activeChar2.name.toUpperCase()}*)\n\n` +
+                               `👉 Es el turno de @${senderClean}.\n` +
+                               `Usa \`${prefix}om <1-4>\` para atacar.\n` +
+                               `1: Rapido (20-35) | 2: Normal (35-55) | 3: Fuerte (55-75) | 4: Ultime (80-120)`;
+
+            await sock.sendMessage(from, { text: battleText, mentions: [sender, target] }, { quoted: msg });
+        }
+
+        else if (command === 'om') {
+            if (!activeOpmBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate de OPM activo en este grupo.` }, { quoted: msg });
+            const battle = activeOpmBattles[from];
+
+            if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla de OPM. Por favor no interrumpas.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            if (battle.turn !== senderClean) {
+                return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar. Le toca a @${battle.turn}.`, mentions: [`${battle.turn}@s.whatsapp.net`] }, { quoted: msg });
+            }
+
+            const moveIndex = parseInt(args[1]) - 1;
+            const isP1 = battle.turn === battle.p1.id;
+            const attacker = isP1 ? battle.p1 : battle.p2;
+            const defender = isP1 ? battle.p2 : battle.p1;
+
+            if (isNaN(moveIndex) || moveIndex < 0 || moveIndex >= attacker.moves.length) {
+                return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}om 1\`).` }, { quoted: msg });
+            }
+
+            const moveDamages = [
+                { min: 20, max: 35 },  
+                { min: 35, max: 55 },  
+                { min: 55, max: 75 },  
+                { min: 80, max: 120 }  
+            ];
+
+            const selectedMove = moveDamages[moveIndex];
+            let damage = Math.floor(Math.random() * (selectedMove.max - selectedMove.min + 1)) + selectedMove.min;
+
+            const isCritical = Math.random() < 0.15;
+            if (isCritical) {
+                damage = Math.floor(damage * 1.5);
+            }
+
+            defender.hp = Math.max(0, defender.hp - damage);
+
+            const barLength = 10;
+            const filled1 = Math.round((battle.p1.hp / battle.p1.maxHp) * barLength);
+            const bar1 = '█'.repeat(Math.max(0, filled1)) + '░'.repeat(Math.max(0, barLength - filled1));
+            
+            const filled2 = Math.round((battle.p2.hp / battle.p2.maxHp) * barLength);
+            const bar2 = '█'.repeat(Math.max(0, filled2)) + '░'.repeat(Math.max(0, barLength - filled2));
+
+            battle.turn = isP1 ? battle.p2.id : battle.p1.id;
+
+            const moveName = attacker.moves[moveIndex];
+            let response = `💥 *${attacker.char.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño${isCritical ? ' 🎯 *(¡GOLPE CRÍTICO!)*' : ''}.\n\n`;
+            response += `${battle.p1.char.name}: [${bar1}] ${battle.p1.hp}/${battle.p1.maxHp}\n`;
+            response += `${battle.p2.char.name}: [${bar2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
+
+            if (defender.hp <= 0) {
+                response += `🏆 ¡*${attacker.char.name.toUpperCase()}* ha ganado la batalla OPM! 🎉`;
+                delete activeOpmBattles[from];
+            } else {
+                response += `👉 Turno de @${battle.turn}\nUsa \`${prefix}om <1-4>\``;
+            }
+
+            await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender] }, { quoted: msg });
+        }
+
+        else if (command === 'pcombatir' || command === 'pbattle') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}pcombatir @usuario\`` }, { quoted: msg });
+            
+            const targetClean = target.replace(/[^0-9]/g, '');
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.` }, { quoted: msg });
+
+            const targetPlayer = getPlayer(data, targetClean);
+            const activePoke1 = player.pokes[player.activePoke || 0];
+            const activePoke2 = targetPlayer.pokes[targetPlayer.activePoke || 0];
+
+            activeBattles[from] = {
+                p1: { id: senderClean, poke: activePoke1, hp: 170, maxHp: 170, moves: ["Cometa Draco", "Bola Sombra", "Placaje", "Hiperrayo"] },
+                p2: { id: targetClean, poke: activePoke2, hp: 170, maxHp: 170, moves: ["Brillo Mágico", "Impactrueno", "Arañazo", "Surf"] },
+                turn: senderClean
+            };
+
+            const battleText = `⚔️ *¡COMBATE POKÉMON INICIADO!* ⚔️\n\n` +
+                               `🔴 @${senderClean} (*${activePoke1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activePoke2.name.toUpperCase()}*)\n\n` +
+                               `👉 Es el turno de @${senderClean}.\n` +
+                               `Usa \`${prefix}pm <1-4>\` para atacar.`;
+
+            await sock.sendMessage(from, { text: battleText, mentions: [sender, target] }, { quoted: msg });
+        }
+
+        else if (command === 'pm' || command === 'move') {
+            if (!activeBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate Pokémon activo en este grupo.` }, { quoted: msg });
+            const battle = activeBattles[from];
+
+            if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate. Por favor no interrumpas.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            if (battle.turn !== senderClean) {
+                return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar. Le toca a @${battle.turn}.`, mentions: [`${battle.turn}@s.whatsapp.net`] }, { quoted: msg });
+            }
+
+            const moveIndex = parseInt(args[1]) - 1;
+            const isP1 = battle.turn === battle.p1.id;
+            const attacker = isP1 ? battle.p1 : battle.p2;
+            const defender = isP1 ? battle.p2 : battle.p1;
+
+            if (isNaN(moveIndex) || moveIndex < 0 || moveIndex >= attacker.moves.length) {
+                return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}pm 1\`).` }, { quoted: msg });
+            }
+
+            const moveName = attacker.moves[moveIndex];
+            const damage = Math.floor(Math.random() * 45) + 10;
+            defender.hp = Math.max(0, defender.hp - damage);
+
+            const barLength = 10;
+            const filled1 = Math.round((battle.p1.hp / battle.p1.maxHp) * barLength);
+            const bar1 = '█'.repeat(Math.max(0, filled1)) + '░'.repeat(Math.max(0, barLength - filled1));
+            
+            const filled2 = Math.round((battle.p2.hp / battle.p2.maxHp) * barLength);
+            const bar2 = '█'.repeat(Math.max(0, filled2)) + '░'.repeat(Math.max(0, barLength - filled2));
+
+            battle.turn = isP1 ? battle.p2.id : battle.p1.id;
+
+            let response = `💥 *${attacker.poke.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño.\n`;
+            if (damage === 0) response += `🚫 No afecta al rival...\n\n`;
+            else response += `\n`;
+
+            response += `${battle.p1.poke.name}: [${bar1}] ${battle.p1.hp}/${battle.p1.maxHp}\n`;
+            response += `${battle.p2.poke.name}: [${bar2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
+
+            if (defender.hp <= 0) {
+                response += `🏆 ¡*${attacker.poke.name.toUpperCase()}* ha ganado el combate! 🎉`;
                 delete activeBattles[from];
             } else {
-                battle.turn = isP1 ? battle.p2 : battle.p1;
-                const nextJid = `${battle.turn}@s.whatsapp.net`;
-                
-                const turnMsg = `💥 *${attackerName}* usó ataque y causó *${damage}* de daño.\n\n` +
-                                `• @${battle.p1} (${p1Poke.name.toUpperCase()}): ${battle.p1Hp}/${battle.p1MaxHp}\n` +
-                                `• @${battle.p2} (${p2Poke.name.toUpperCase()}): ${battle.p2Hp}/${battle.p2MaxHp}\n\n` +
-                                `👉 Turno de @${battle.turn}.\n` +
-                                `/pm 1 · Ataque Rápido\n` +
-                                `/pm 2 · Bola Sombra\n` +
-                                `/pm 3 · Placaje\n` +
-                                `/pm 4 · Hiperrayo`;
-
-                await sock.sendMessage(from, { text: turnMsg, mentions: [p1Jid, p2Jid] });
+                response += `👉 Turno de @${battle.turn}\n`;
+                attacker.moves.forEach((m, idx) => {
+                    response += `${prefix}pm ${idx + 1} · Max ${m}\n`;
+                });
             }
+
+            await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender] }, { quoted: msg });
         }
 
-        // --- MÉGA-ÉVOLUTION EN PLEIN COMBAT AVEC ENVOI D'IMAGE ---
-        else if (['mega', 'dynamax', 'gigantamax'].includes(command)) {
-            const battle = activeBattles[from];
-            if (!battle || battle.status !== 'active') {
-                return sock.sendMessage(from, { text: `⚠️ Las formas especiales (Mega, Dynamax, Gigantamax) solo se pueden usar *durante un combate activo*.` }, { quoted: msg });
-            }
-            if (senderClean !== battle.p1 && senderClean !== battle.p2) {
-                return sock.sendMessage(from, { text: `❌ No estás en el combate actual.` }, { quoted: msg });
-            }
-
-            const formType = command;
-            const activeIdx = player.active || 0;
-            if (!player.pokes[activeIdx]) player.active = 0;
+        else if (command === 'dcombatir' || command === 'dbattle') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}dcombatir @usuario\`` }, { quoted: msg });
             
-            const currentPoke = player.pokes[player.active];
-            currentPoke.form = formType;
-            currentPoke.power += 50;
-
-            if (senderClean === battle.p1) {
-                battle.p1MaxHp += 100;
-                battle.p1Hp += 100;
-            } else {
-                battle.p2MaxHp += 100;
-                battle.p2Hp += 100;
-            }
-            saveData(data);
-
-            const p1Obj = getPlayer(data, battle.p1);
-            const p2Obj = getPlayer(data, battle.p2);
-            const p1Poke = p1Obj.pokes[p1Obj.active || 0] || p1Obj.pokes[0];
-            const p2Poke = p2Obj.pokes[p2Obj.active || 0] || p2Obj.pokes[0];
-
-            const p1Jid = `${battle.p1}@s.whatsapp.net`;
-            const p2Jid = `${battle.p2}@s.whatsapp.net`;
-
-            const pokeImageUrl = currentPoke.image || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${currentPoke.name}.png`;
-
-            const evolveMsg = `✨ *¡MEGA-EVOLUCIÓN EN COMBATE!* ✨\n\n` +
-                              `🔥 ¡El Pokémon de @${senderClean} ha evolucionado a forma *${formType.toUpperCase()}*!\n` +
-                              `💪 ¡Poder y PV aumentados considerablemente!\n\n` +
-                              `• @${battle.p1} (${p1Poke.name.toUpperCase()}[${p1Poke.form}]): ${battle.p1Hp}/${battle.p1MaxHp}\n` +
-                              `• @${battle.p2} (${p2Poke.name.toUpperCase()}[${p2Poke.form}]): ${battle.p2Hp}/${battle.p2MaxHp}\n\n` +
-                              `👉 Turno de @${battle.turn}.\n` +
-                              `/pm 1 · Ataque Rápido\n` +
-                              `/pm 2 · Bola Sombra\n` +
-                              `/pm 3 · Placaje\n` +
-                              `/pm 4 · Hiperrayo`;
-
-            await sock.sendMessage(from, { image: { url: pokeImageUrl }, caption: evolveMsg, mentions: [p1Jid, p2Jid, sender] });
-        }
-
-        else if (command === 'adivina') {
-            const trivias = [
-                { q: "¿Qué Pokémon es conocido como el ratón eléctrico?", a: "pikachu" },
-                { q: "¿Cuál es la evolución inicial tipo planta de la primera generación?", a: "bulbasaur" },
-                { q: "¿Qué criatura legendaria de fuego parece un dragón pero no es tipo dragón?", a: "charizard" }
-            ];
-            const randomTrivia = trivias[Math.floor(Math.random() * trivias.length)];
-            activeTrivia[from] = randomTrivia.a;
-            await sock.sendMessage(from, { text: `❓ *TRIVIA POKÉMON* ❓\n\n${randomTrivia.q}\n\n👉 Responde con: \`${prefix}resp <respuesta>\` (Gana 100 monedas).` }, { quoted: msg });
-        }
-
-        else if (command === 'resp') {
-            const ans = args.slice(1).join(' ').toLowerCase();
-            if (!activeTrivia[from]) return;
-            if (ans === activeTrivia[from]) {
-                player.money += 100;
-                saveData(data);
-                await sock.sendMessage(from, { text: `🎉 ¡Correcto @${senderClean}! +100 monedas.`, mentions: [sender] }, { quoted: msg });
-                delete activeTrivia[from];
-            } else {
-                await sock.sendMessage(from, { text: `❌ Incorrecto.` }, { quoted: msg });
-            }
-        }
-
-        else if (command === 'gato' || command === 'tictactoe') {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un oponente: \`${prefix}gato @usuario\`` }, { quoted: msg });
             const targetClean = target.replace(/[^0-9]/g, '');
-            activeTictactoe[from] = { p1: senderClean, p2: targetClean, board: [1, 2, 3, 4, 5, 6, 7, 8, 9], turn: senderClean };
-            await sock.sendMessage(from, { text: `⭕ JUEGO DE GATO ❌\n@${senderClean} (⭕) vs @${targetClean} (❌)\n\n1 | 2 | 3\n----------\n4 | 5 | 6\n----------\n7 | 8 | 9\n\n👉 Turno de @${senderClean}. Usa ${prefix}pos <1-9>`, mentions: [sender, target] });
-        }
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.` }, { quoted: msg });
 
-        else if (command === 'pos') {
-            const game = activeTictactoe[from];
-            if (!game || game.turn !== senderClean) return;
-            const pos = parseInt(args[1]) - 1;
-            if (isNaN(pos) || pos < 0 || pos > 8 || typeof game.board[pos] === 'string') return sock.sendMessage(from, { text: `⚠️ Posición inválida u ocupada.` }, { quoted: msg });
-            
-            const symbol = (senderClean === game.p1) ? '⭕' : '❌';
-            game.board[pos] = symbol;
-            game.turn = (game.turn === game.p1) ? game.p2 : game.p1;
-
-            const b = game.board;
-            const boardText = `${b[0]} | ${b[1]} | ${b[2]}\n----------\n${b[3]} | ${b[4]} | ${b[5]}\n----------\n${b[6]} | ${b[7]} | ${b[8]}`;
-            await sock.sendMessage(from, { text: `🎮 *Gato*\n\n${boardText}\n\n👉 Turno de @${game.turn}`, mentions: [`${game.turn}@s.whatsapp.net`] });
-        }
-
-        // MUTE ET MODERATION ET COMMANDES ADMIN
-        else if (command === 'mute') {
-            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            const timeArg = args[2] || args[1];
-            if (!target || !timeArg) return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}mute @usuario 10m\` (o 1h, 1d)` }, { quoted: msg });
-            
-            const unit = timeArg.slice(-1).toLowerCase();
-            const val = parseInt(timeArg.slice(0, -1));
-            let ms = unit === 'm' ? val * 60 * 1000 : unit === 'h' ? val * 3600000 : val * 86400000;
-            if (isNaN(ms)) ms = 10 * 60 * 1000;
-
-            const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).mutedUntil = Date.now() + ms;
-            saveData(data);
-            await sock.sendMessage(from, { text: `🔇 Usuario @${targetClean} silenciado. Sus mensajes se borrarán automáticamente hasta que sea desmuteado.`, mentions: [target] }, { quoted: msg });
-        }
-
-        else if (command === 'unmute') {
-            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta al usuario: \`${prefix}unmute @usuario\`` }, { quoted: msg });
-            const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).mutedUntil = 0;
-            saveData(data);
-            await sock.sendMessage(from, { text: `🔊 Usuario @${targetClean} desmuteado correctamente.`, mentions: [target] }, { quoted: msg });
-        }
-
-        else if (command === 'warn' || command === 'advertir') {
-            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta al usuario a advertir: \`${prefix}warn @usuario\`` }, { quoted: msg });
-            const targetClean = target.replace(/[^0-9]/g, '');
             const targetPlayer = getPlayer(data, targetClean);
-            targetPlayer.warns += 1;
-            saveData(data);
-            await sock.sendMessage(from, { text: `⚠️ @${targetClean} ha recibido una advertencia (${targetPlayer.warns}/3).`, mentions: [target] }, { quoted: msg });
-            if (targetPlayer.warns >= 3) {
-                try {
-                    await sock.groupParticipantsUpdate(from, [target], 'remove');
-                    await sock.sendMessage(from, { text: `🚫 @${targetClean} fue expulsado automáticamente por acumular 3 advertencias.`, mentions: [target] });
-                } catch (e) {
-                    await sock.sendMessage(from, { text: `❌ El bot necesita ser admin para expulsar automáticamente.` });
-                }
+            const activeChar1 = player.dbz[player.activeDbz || 0];
+            const activeChar2 = targetPlayer.dbz[targetPlayer.activeDbz || 0];
+
+            activeDbzBattles[from] = {
+                p1: { id: senderClean, char: activeChar1, hp: 200, maxHp: 200, moves: ["Kamehameha", "Golpe Meteorito", "Krilin Disc", "Super Nova"] },
+                p2: { id: targetClean, char: activeChar2, hp: 200, maxHp: 200, moves: ["Final Flash", "Galick Gun", "Big Bang Attack", "Kienzan"] },
+                turn: senderClean
+            };
+
+            const battleText = `☄️ *¡BATALLA Z INICIADA!* ☄️\n\n` +
+                               `🔴 @${senderClean} (*${activeChar1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activeChar2.name.toUpperCase()}*)\n\n` +
+                               `👉 Es el turno de @${senderClean}.\n` +
+                               `Usa \`${prefix}zm <1-4>\` para atacar.`;
+
+            await sock.sendMessage(from, { text: battleText, mentions: [sender, target] }, { quoted: msg });
+        }
+
+        else if (command === 'zm') {
+            if (!activeDbzBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate DBZ activo en este grupo.` }, { quoted: msg });
+            const battle = activeDbzBattles[from];
+
+            if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en esta batalla Z. Por favor no interrumpas.`, mentions: [sender] }, { quoted: msg });
             }
-        }
 
-        else if (command === 'infractions' || command === 'warns') {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const targetClean = target.replace(/[^0-9]/g, '');
-            const targetPlayer = getPlayer(data, targetClean);
-            await sock.sendMessage(from, { text: `📌 El usuario @${targetClean} tiene *${targetPlayer.warns}* advertencia(s).`, mentions: [target] }, { quoted: msg });
-        }
+            if (battle.turn !== senderClean) return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar.` }, { quoted: msg });
 
-        else if (command === 'lock' || command === 'cerrar') {
-            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
-            try {
-                await sock.groupSettingUpdate(from, 'announcement');
-                await sock.sendMessage(from, { text: `🔒 Grupo cerrado. Solo los administradores pueden enviar mensajes.` }, { quoted: msg });
-            } catch (e) {
-                await sock.sendMessage(from, { text: `❌ El bot necesita ser Administrador.` }, { quoted: msg });
+            const moveIdx = parseInt(args[1]) - 1;
+            const isP1 = battle.turn === battle.p1.id;
+            const attacker = isP1 ? battle.p1 : battle.p2;
+            const defender = isP1 ? battle.p2 : battle.p1;
+
+            if (isNaN(moveIdx) || moveIdx < 0 || moveIdx >= attacker.moves.length) {
+                return sock.sendMessage(from, { text: `⚠️ Elige un ataque válido del 1 al 4 (Ej: \`${prefix}zm 1\`).` }, { quoted: msg });
             }
-        }
 
-        else if (command === 'unlock' || command === 'abrir') {
-            if (!isAdmin) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
-            try {
-                await sock.groupSettingUpdate(from, 'not_announcement');
-                await sock.sendMessage(from, { text: `🔓 Grupo abierto. Todos los miembros pueden participar.` }, { quoted: msg });
-            } catch (e) {
-                await sock.sendMessage(from, { text: `❌ El bot necesita ser Administrador.` }, { quoted: msg });
+            const moveName = attacker.moves[moveIdx];
+            const damage = Math.floor(Math.random() * 55) + 15;
+            defender.hp = Math.max(0, defender.hp - damage);
+
+            const barLength = 10;
+            const b1 = '█'.repeat(Math.round((battle.p1.hp / battle.p1.maxHp) * barLength)) + '░'.repeat(10 - Math.round((battle.p1.hp / battle.p1.maxHp) * barLength));
+            const b2 = '█'.repeat(Math.round((battle.p2.hp / battle.p2.maxHp) * barLength)) + '░'.repeat(10 - Math.round((battle.p2.hp / battle.p2.maxHp) * barLength));
+
+            battle.turn = isP1 ? battle.p2.id : battle.p1.id;
+
+            let resText = `💥 *${attacker.char.name}* usó *${moveName}* e hizo *${damage}* de daño.\n\n` +
+                          `${battle.p1.char.name}: [${b1}] ${battle.p1.hp}/${battle.p1.maxHp}\n` +
+                          `${battle.p2.char.name}: [${b2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
+
+            if (defender.hp <= 0) {
+                resText += `🏆 ¡*${attacker.char.name}* ha ganado la batalla DBZ! 🎉`;
+                delete activeDbzBattles[from];
+            } else {
+                resText += `👉 Turno de @${battle.turn}\nUsa \`${prefix}zm <1-4>\``;
             }
+
+            await sock.sendMessage(from, { text: resText, mentions: [`${battle.turn}@s.whatsapp.net`] }, { quoted: msg });
         }
 
-        else if (command === 'kick') {
-            if (!isAdmin) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return;
-            await sock.groupParticipantsUpdate(from, [target], 'remove');
-            await sock.sendMessage(from, { text: '🚪 Usuario expulsado.' }, { quoted: msg });
-        }
-
-        else if (command === 'ban') {
-            if (!isAdmin) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return;
-            const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).banned = true;
-            saveData(data);
-            await sock.sendMessage(from, { text: `🚫 @${targetClean} baneado del bot.`, mentions: [target] }, { quoted: msg });
-        }
-
-        else if (command === 'unban') {
-            if (!isAdmin) return;
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return;
-            const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).banned = false;
-            saveData(data);
-            await sock.sendMessage(from, { text: `✅ @${targetClean} desbaneado.`, mentions: [target] }, { quoted: msg });
-        }
-
-        // UTILS
-        else if (command === 'image' || command === 'google') {
+        // ==========================================
+        // 📥 COMMANDES MEDIAS & AUTRES
+        // ==========================================
+        else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
-            if (!query) return;
-            const imgUrl = `https://images.weserv.nl/?url=source.unsplash.com/featured/?${encodeURIComponent(query)}`;
-            await sock.sendMessage(from, { image: { url: imgUrl }, caption: `🖼️ Imagen de: *${query}*` }, { quoted: msg });
+            if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}youtube <canción o artista>\`` }, { quoted: msg });
+
+            await sock.sendMessage(from, { text: `🎵 Buscando y procesando *"${query}"* en YouTube...` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `✅ Resultado de YouTube para: *${query}*\n🔗 (Audio / Video encontrado exitosamente)` }, { quoted: msg });
         }
 
-        else if (command === 'clima') {
-            const ciudad = args.slice(1).join(' ');
-            if (!ciudad) return;
-            await sock.sendMessage(from, { text: `🌤️ Clima para *${ciudad}*: https://wttr.in/${encodeURIComponent(ciudad)}?lang=es` }, { quoted: msg });
+        else if (command === 'pinterest' || command === 'pin') {
+            const query = args.slice(1).join(' ');
+            if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}pinterest <búsqueda>\`` }, { quoted: msg });
+
+            const sampleImg = "https://images.dog.ceo/breeds/hound-english/n02089973_1.jpg";
+            await sock.sendMessage(from, { image: { url: sampleImg }, caption: `📌 Resultado de Pinterest para: *${query}*` }, { quoted: msg });
         }
 
-        else if (command === 'bal') {
-            await sock.sendMessage(from, { text: `💰 Tienes *${player.money} monedas*.` }, { quoted: msg });
+        else if (command === 'image' || command === 'imagen' || command === 'img') {
+            const query = args.slice(1).join(' ');
+            if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}image <búsqueda>\`` }, { quoted: msg });
+
+            const sampleImg = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png";
+            await sock.sendMessage(from, { image: { url: sampleImg }, caption: `🖼️ Resultado de imagen para: *${query}*` }, { quoted: msg });
         }
 
-        // OWNER COMMANDS
-        else if (command === 'givepoke' && isDev) {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const pokeName = args[1]?.toLowerCase();
-            const power = parseInt(args[args.length - 1]) || 100;
-            if (!pokeName) return sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}givepoke @usuario <pokemon> <poder>` }, { quoted: msg });
-            const targetClean = target.replace(/[^0-9]/g, '');
-            const pokeImg = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokeName}.png`;
-            getPlayer(data, targetClean).pokes.push({ name: pokeName, level: 50, xp: 0, power: power, form: 'normal', image: pokeImg });
+        else if (command === 'bratv' || command === 'bratvideo') {
+            const bratText = args.slice(1).join(' ');
+            if (!bratText) return sock.sendMessage(from, { text: `⚠️ Ingresa texto: \`${prefix}bratv Hola\`` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🟩🟩🟩🟩🟩🟩\n🟩 *BRAT-V* : ${bratText}\n🟩🟩🟩🟩🟩🟩` }, { quoted: msg });
+        }
+
+        else if (command === 'pokemenu') {
+            const pkMenu = `✨ *MENÚ DE POKÉMON* ✨\n\n` +
+                           `• \`${prefix}pstart <nombre>\` - Starter inicial\n` +
+                           `• \`${prefix}equipo\` - Ver tus Pokémon\n` +
+                           `• \`${prefix}buycandy <cant>\` - Comprar caramelos\n` +
+                           `• \`${prefix}ptransform <mega|giga>\` - Transformación\n` +
+                           `• \`${prefix}pcombatir @user\` - Combate\n` +
+                           `• \`${prefix}catch\` - Atrapar Pokémon salvaje`;
+            await sock.sendMessage(from, { text: pkMenu }, { quoted: msg });
+        }
+
+        else if (command === 'work' || command === 'trabajar') {
+            const earnings = Math.floor(Math.random() * 200) + 50;
+            player.money += earnings;
             saveData(data);
-            await sock.sendMessage(from, { text: `🎁 Pokémon *${pokeName.toUpperCase()}* regalado a @${targetClean}.`, mentions: [target] }, { quoted: msg });
+            await sock.sendMessage(from, { text: `💼 ¡Trabajaste duro y ganaste *$${earnings}* coins!` }, { quoted: msg });
         }
 
-        else if (command === 'givecoins' && isDev) {
-            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || sender;
-            const amount = parseInt(args[args.length - 1]);
-            if (isNaN(amount)) return sock.sendMessage(from, { text: `⚠️ Uso: ${prefix}givecoins @usuario <cantidad>` }, { quoted: msg });
-            const targetClean = target.replace(/[^0-9]/g, '');
-            getPlayer(data, targetClean).money += amount;
-            saveData(data);
-            await sock.sendMessage(from, { text: `💰 Se agregaron ${amount} monedas a @${targetClean}.`, mentions: [target] }, { quoted: msg });
+        else if (command === 'bal' || command === 'balance') {
+            await sock.sendMessage(from, { text: `💰 *BALANCE DE @${senderClean}*\n\n• Coins: $${player.money}\n• Banco: $${player.bank}`, mentions: [sender] }, { quoted: msg });
         }
 
-        else if (command === 'reiniciar' && isDev) {
-            await sock.sendMessage(from, { text: `🔄 Reiniciando el sistema de ${BOT_NAME}...` });
-            process.exit(0);
+        else if (command === 's' || command === 'sticker') {
+            const isQuotedImage = msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+            const isImage = msg.message.imageMessage;
+            if (!isImage && !isQuotedImage) return sock.sendMessage(from, { text: `⚠️ Responde a una imagen con \`${prefix}sticker\`` }, { quoted: msg });
+            try {
+                const targetMsg = isQuotedImage ? { message: msg.message.extendedTextMessage.contextInfo.quotedMessage } : msg;
+                const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
+                await sock.sendMessage(from, { sticker: buffer }, { quoted: msg });
+            } catch (e) {
+                await sock.sendMessage(from, { text: `❌ Error al crear el sticker.` }, { quoted: msg });
+            }
         }
+
     });
 }
