@@ -135,7 +135,14 @@ app.post('/api/pairing', async (req, res) => {
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        const code = await startUserSession(cleanNumber);
+        let code = null;
+        
+        for (let i = 0; i < 2; i++) {
+            code = await startUserSession(cleanNumber);
+            if (code) break;
+            await new Promise(r => setTimeout(r, 4000));
+        }
+
         if (!code) {
             return res.status(500).json({ error: "No se pudo generar el código, reintenta en unos segundos." });
         }
@@ -271,13 +278,9 @@ async function startUserSession(cleanNumber) {
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`[Session ${cleanNumber}] Conexión cerrada (${statusCode}). Reconectando...`, shouldReconnect);
             
             if (statusCode === 401) {
-                try { 
-                    fs.rmSync(sessionDir, { recursive: true, force: true }); 
-                    console.log(`[Session ${cleanNumber}] Sesión inválida borrada automáticamente.`);
-                } catch(e){}
+                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
             }
 
             if (shouldReconnect && statusCode !== 401) {
@@ -285,14 +288,12 @@ async function startUserSession(cleanNumber) {
             } else {
                 delete activeSessions[cleanNumber];
             }
-        } else if (connection === 'open') {
-            console.log(`¡[Session ${cleanNumber}] Bot conectado correctamente a WhatsApp!`);
         }
     });
 
     setupEvents(sock);
 
-    await new Promise(resolve => setTimeout(resolve, 8000));
+    await new Promise(resolve => setTimeout(resolve, 6000));
 
     if (!state.creds.registered) {
         try {
