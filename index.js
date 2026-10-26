@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
@@ -254,7 +254,7 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONFIGURATION WASOCKET CORRIGÉE ---
+// --- CONFIGURATION WASOCKET AVEC GESTION DE PROMISE ROBUSTE ---
 async function startUserSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
     if (!fs.existsSync('./sessions')) {
@@ -278,14 +278,17 @@ async function startUserSession(cleanNumber) {
     sock.ev.on('creds.update', saveCreds);
 
     return new Promise((resolve) => {
+        let pairingRequested = false;
+
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
             
             if (connection === 'open') {
-                console.log(`¡[Session ${cleanNumber}] Conectado correctamente a WhatsApp!`);
-                if (!state.creds.registered) {
+                console.log(`¡[Session ${cleanNumber}] Conectado a WhatsApp!`);
+                if (!state.creds.registered && !pairingRequested) {
+                    pairingRequested = true;
                     try {
-                        await new Promise(r => setTimeout(r, 3000));
+                        await new Promise(r => setTimeout(r, 2000));
                         let code = await sock.requestPairingCode(cleanNumber);
                         code = code?.match(/.{1,4}/g)?.join("-") || code;
                         resolve(code);
