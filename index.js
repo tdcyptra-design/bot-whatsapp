@@ -254,7 +254,7 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONFIGURATION WASOCKET ---
+// --- CONFIGURATION WASOCKET CORRIGÉE ---
 async function startUserSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
     if (!fs.existsSync('./sessions')) {
@@ -277,39 +277,46 @@ async function startUserSession(cleanNumber) {
     activeSessions[cleanNumber] = sock;
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+    return new Promise((resolve) => {
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect } = update;
             
-            if (statusCode === 401) {
-                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
+            if (connection === 'open') {
+                console.log(`¡[Session ${cleanNumber}] Conectado correctamente a WhatsApp!`);
+                if (!state.creds.registered) {
+                    try {
+                        await new Promise(r => setTimeout(r, 3000));
+                        let code = await sock.requestPairingCode(cleanNumber);
+                        code = code?.match(/.{1,4}/g)?.join("-") || code;
+                        resolve(code);
+                    } catch (error) {
+                        console.error("Error al pedir código de emparejamiento:", error);
+                        resolve(null);
+                    }
+                } else {
+                    resolve(null);
+                }
             }
 
-            if (shouldReconnect && statusCode !== 401) {
-                setTimeout(() => startUserSession(cleanNumber), 5000);
-            } else {
-                delete activeSessions[cleanNumber];
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                
+                if (statusCode === 401) {
+                    try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
+                }
+
+                if (shouldReconnect && statusCode !== 401) {
+                    setTimeout(() => startUserSession(cleanNumber), 5000);
+                } else {
+                    delete activeSessions[cleanNumber];
+                }
+                resolve(null);
             }
-        }
+        });
+
+        setupEvents(sock);
     });
-
-    setupEvents(sock);
-
-    await new Promise(resolve => setTimeout(resolve, 8000));
-
-    if (!state.creds.registered) {
-        try {
-            let code = await sock.requestPairingCode(cleanNumber);
-            code = code?.match(/.{1,4}/g)?.join("-") || code;
-            return code;
-        } catch (error) {
-            console.error("Error al pedir código de emparejamiento:", error);
-            return null;
-        }
-    }
-    return null;
 }
 
 function setupEvents(sock) {
