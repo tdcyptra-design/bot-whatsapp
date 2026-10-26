@@ -4,6 +4,7 @@ const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
 const http = require('http');
+const https = require('https');
 
 const DATA_FILE = './data.json';
 const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
@@ -114,13 +115,15 @@ app.post('/api/pairing', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🌐 Servidor web activo en puerto ${PORT}`);
-    // NOTE: Lancement automatique supprimé pour éviter les conflits 428/Precondition Required.
-    // Le bot se lancera proprement dès que tu cliqueras sur le panneau web.
 
-    // --- SYSTÈME D'AUTO-PING INTERNE (Toutes les 30 secondes) ---
+    // --- SYSTÈME D'AUTO-PING CORRIGÉ (HTTPS / HTTP) ---
     setInterval(() => {
-        const url = process.env.RENDER_EXTERNAL_URL ? `${process.env.RENDER_EXTERNAL_URL}/ping` : `http://localhost:${PORT}/ping`;
-        http.get(url, (res) => {
+        const externalUrl = process.env.RENDER_EXTERNAL_URL;
+        const targetUrl = externalUrl ? `${externalUrl}/ping` : `http://localhost:${PORT}/ping`;
+        
+        const client = targetUrl.startsWith('https') ? https : http;
+
+        client.get(targetUrl, (res) => {
             console.log(`🔄 [Auto-Ping 30s] Statut: ${res.statusCode} (Bot maintenu éveillé)`);
         }).on('error', (err) => {
             console.log(`⚠️ [Auto-Ping 30s] Erreur: ${err.message}`);
