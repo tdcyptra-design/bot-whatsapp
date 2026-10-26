@@ -25,14 +25,17 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
-// --- PANEL WEB THÈME HALLOWEEN & CODE D'APPAIRAGE ---
+// --- PANEL WEB MULTI-SESSION THÈME HALLOWEEN ---
 app.get('/', (req, res) => {
+    const sessionDirs = fs.existsSync('./sessions') ? fs.readdirSync('./sessions') : [];
+    const connectedNumbers = sessionDirs.map(dir => dir.replace('session_', ''));
+
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TEAM DRONIX // Halloween Edition</title>
+    <title>TEAM DRONIX // Multi-Session Panel</title>
     <style>
         body { 
             background: linear-gradient(rgba(10, 5, 15, 0.9), rgba(5, 2, 8, 0.95)), url('https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
@@ -47,7 +50,7 @@ app.get('/', (req, res) => {
             margin: 0; 
             padding: 20px; 
         }
-        .container { width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 480px; display: flex; flex-direction: column; align-items: center; }
         .panel { 
             background: rgba(18, 10, 25, 0.88); 
             border: 2px solid #ff7518; 
@@ -58,23 +61,39 @@ app.get('/', (req, res) => {
             width: 100%;
             backdrop-filter: blur(10px);
         }
-        h1 { color: #ff7518; margin-bottom: 5px; font-size: 28px; letter-spacing: 3px; text-shadow: 0 0 10px rgba(255,117,24,0.6); }
-        .subtitle { color: #b388ff; font-size: 12px; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; }
+        h1 { color: #ff7518; margin-bottom: 5px; font-size: 26px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(255,117,24,0.6); }
+        .subtitle { color: #b388ff; font-size: 12px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }
         input { width: 90%; padding: 14px; margin: 10px 0; background: #08030f; border: 1px solid #4a154b; color: #ff7518; border-radius: 8px; text-align: center; font-size: 16px; outline: none; }
         input:focus { border-color: #ff7518; box-shadow: 0 0 12px rgba(255,117,24,0.5); }
-        button { width: 98%; padding: 14px; background: #ff7518; border: none; color: #08030f; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 15px; text-transform: uppercase; transition: all 0.3s ease; }
+        button { width: 98%; padding: 14px; background: #ff7518; border: none; color: #08030f; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 15px; margin-top: 10px; text-transform: uppercase; transition: all 0.3s ease; }
         button:hover { background: #e05e0b; color: white; box-shadow: 0 0 20px rgba(255,117,24,0.8); }
-        #codeDisplay { margin-top: 25px; font-size: 24px; font-weight: bold; color: #00ffcc; word-break: break-all; text-shadow: 0 0 10px rgba(0,255,204,0.4); }
+        .sessions-list { margin-top: 20px; text-align: left; width: 100%; border-top: 1px solid #4a154b; padding-top: 15px; }
+        .session-item { display: flex; justify-content: space-between; align-items: center; background: #08030f; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 14px; }
+        .btn-del { background: #ff3366; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; width: auto; margin: 0; }
+        #codeDisplay { margin-top: 20px; font-size: 22px; font-weight: bold; color: #00ffcc; word-break: break-all; text-shadow: 0 0 10px rgba(0,255,204,0.4); }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="panel">
             <h1>🎃 TEAM DRONIX 🦇</h1>
-            <div class="subtitle">Halloween Pairing Panel</div>
-            <input type="text" id="phone" placeholder="EJ: 56928637216">
-            <button onclick="requestPairing()">OBTENER CÓDIGO</button>
+            <div class="subtitle">Multi-Session Pairing Panel</div>
+            
+            <input type="text" id="phone" placeholder="Número (ej: 56912345678)">
+            <button onclick="requestPairing()">Añadir Nueva Sesión</button>
+            
             <div id="codeDisplay"></div>
+
+            <div class="sessions-list">
+                <h3 style="color: #b388ff; font-size: 14px; margin-bottom: 10px;">📱 Sesiones Registradas:</h3>
+                ${connectedNumbers.length === 0 ? '<p style="color: #888; font-size: 12px;">No hay sesiones activas.</p>' : ''}
+                ${connectedNumbers.map(num => `
+                    <div class="session-item">
+                        <span>🟢 +${num}</span>
+                        <button class="btn-del" onclick="deleteSession('${num}')">Borrar</button>
+                    </div>
+                `).join('')}
+            </div>
         </div>
     </div>
     <script>
@@ -82,7 +101,7 @@ app.get('/', (req, res) => {
             const phone = document.getElementById('phone').value.trim();
             const display = document.getElementById('codeDisplay');
             if(!phone) { display.innerText = "❌ Ingrese un número"; return; }
-            display.innerText = "⏳ Conjurando código...";
+            display.innerText = "⏳ Generando código...";
             try {
                 const res = await fetch('/api/pairing', {
                     method: 'POST',
@@ -93,6 +112,18 @@ app.get('/', (req, res) => {
                 if(data.code) { display.innerText = "🔑 CÓDIGO: " + data.code; }
                 else { display.innerText = "❌ " + (data.error || "Error al generar"); }
             } catch(e) { display.innerText = "❌ Error de conexión"; }
+        }
+
+        async function deleteSession(phone) {
+            if(!confirm("¿Seguro que deseas eliminar la sesión +" + phone + "?")) return;
+            try {
+                const res = await fetch('/api/delete-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: phone })
+                });
+                location.reload();
+            } catch(e) { alert("Error al eliminar"); }
         }
     </script>
 </body>
@@ -109,27 +140,60 @@ app.post('/api/pairing', async (req, res) => {
         res.json({ code });
     } catch (err) {
         console.error("Error al generar código de emparejamiento:", err);
-        res.status(500).json({ error: "Falló la generación del código. Intente de nuevo." });
+        res.status(500).json({ error: "Falló la generación del código." });
+    }
+});
+
+app.post('/api/delete-session', (req, res) => {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
+
+    const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+    const sessionDir = `./sessions/session_${cleanNumber}`;
+
+    try {
+        if (activeSessions[cleanNumber]) {
+            try { activeSessions[cleanNumber].end(); } catch(e){}
+            delete activeSessions[cleanNumber];
+        }
+        if (fs.existsSync(sessionDir)) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
 app.listen(PORT, () => {
     console.log(`🌐 Servidor web activo en puerto ${PORT}`);
+    initAllSessions();
 
-    // --- SYSTÈME D'AUTO-PING CORRIGÉ (HTTPS / HTTP) ---
     setInterval(() => {
         const externalUrl = process.env.RENDER_EXTERNAL_URL;
         const targetUrl = externalUrl ? `${externalUrl}/ping` : `http://localhost:${PORT}/ping`;
-        
         const client = targetUrl.startsWith('https') ? https : http;
 
         client.get(targetUrl, (res) => {
-            console.log(`🔄 [Auto-Ping 30s] Statut: ${res.statusCode} (Bot maintenu éveillé)`);
+            console.log(`🔄 [Auto-Ping 30s] Statut: ${res.statusCode} (Bot mantenido despierto)`);
         }).on('error', (err) => {
             console.log(`⚠️ [Auto-Ping 30s] Erreur: ${err.message}`);
         });
     }, 30000); 
 });
+
+function initAllSessions() {
+    if (fs.existsSync('./sessions')) {
+        const dirs = fs.readdirSync('./sessions');
+        dirs.forEach(dir => {
+            if (dir.startsWith('session_')) {
+                const cleanNumber = dir.replace('session_', '');
+                console.log(`🔄 Reconnecting existing session: ${cleanNumber}`);
+                startUserSession(cleanNumber).catch(console.error);
+            }
+        });
+    }
+}
 
 function loadData() {
     try {
@@ -225,7 +289,7 @@ async function startUserSession(cleanNumber) {
                 delete activeSessions[cleanNumber];
             }
         } else if (connection === 'open') {
-            console.log(`¡[Session ${cleanNumber}] Bot conectado correctamente à WhatsApp!`);
+            console.log(`¡[Session ${cleanNumber}] Bot conectado correctamente a WhatsApp!`);
         }
     });
 
