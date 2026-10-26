@@ -254,7 +254,7 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONFIGURATION WASOCKET AVEC ATTENTE D'OUVERTURE FIABLE ---
+// --- CONFIGURATION WASOCKET AVEC DÉLAI FIXE STABLE ---
 async function startUserSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
     if (!fs.existsSync('./sessions')) {
@@ -278,45 +278,36 @@ async function startUserSession(cleanNumber) {
     sock.ev.on('creds.update', saveCreds);
     setupEvents(sock);
 
-    return new Promise((resolve) => {
-        let codeRequested = false;
-
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect } = update;
-
-            if (connection === 'open' && !state.creds.registered && !codeRequested) {
-                codeRequested = true;
-                try {
-                    await new Promise(r => setTimeout(r, 3000));
-                    let code = await sock.requestPairingCode(cleanNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    resolve(code);
-                } catch (error) {
-                    console.error("Error al pedir código de emparejamiento:", error);
-                    resolve(null);
-                }
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            if (statusCode === 401) {
+                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
             }
 
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                
-                if (statusCode === 401) {
-                    try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
-                }
-
-                if (shouldReconnect && statusCode !== 401) {
-                    setTimeout(() => startUserSession(cleanNumber), 5000);
-                } else {
-                    delete activeSessions[cleanNumber];
-                }
-                if (!codeRequested) {
-                    codeRequested = true;
-                    resolve(null);
-                }
+            if (shouldReconnect && statusCode !== 401) {
+                setTimeout(() => startUserSession(cleanNumber), 5000);
+            } else {
+                delete activeSessions[cleanNumber];
             }
-        });
+        }
     });
+
+    if (!state.creds.registered) {
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        try {
+            let code = await sock.requestPairingCode(cleanNumber);
+            code = code?.match(/.{1,4}/g)?.join("-") || code;
+            return code;
+        } catch (error) {
+            console.error("Error al pedir código de emparejamiento:", error);
+            return null;
+        }
+    }
+    return null;
 }
 
 function setupEvents(sock) {
