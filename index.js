@@ -4,6 +4,7 @@ const express = require('express');
 const pino = require('pino');
 const http = require('http');
 const https = require('https');
+const yts = require('yt-search');
 
 const DATA_FILE = './data.json';
 const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
@@ -18,7 +19,6 @@ const userSpamTracker = {};
 const activeBattles = {};
 const activeDbzBattles = {};
 const activeOpmBattles = {};
-const activeGroupSpawns = {};
 
 app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
@@ -388,9 +388,124 @@ function setupEvents(sock) {
         const command = args[0].toLowerCase();
 
         // ==========================================
-        // 📢 COMMANDE #TAG
+        // 🌿 POKÉMON COMMANDES
         // ==========================================
-        if (command === 'tag' || command === 'hidetag') {
+        if (command === 'pstart' || command === 'starter') {
+            if (player.hasStarted) {
+                return sock.sendMessage(from, { text: `⚠️ ¡@${senderClean}, tú ya elegiste tu Pokémon inicial!`, mentions: [sender] }, { quoted: msg });
+            }
+            const starterName = args[1]?.toLowerCase();
+            const validStarters = ['charmander', 'bulbasaur', 'squirtle', 'pikachu'];
+            if (!validStarters.includes(starterName)) {
+                return sock.sendMessage(from, { text: `⚠️ Elige un Pokémon inicial válido:\n• \`${prefix}pstart charmander\`\n• \`${prefix}pstart bulbasaur\`\n• \`${prefix}pstart squirtle\`\n• \`${prefix}pstart pikachu\`` }, { quoted: msg });
+            }
+            player.hasStarted = true;
+            player.pokes = [{ name: starterName, level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
+            saveData(data);
+            await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}! Has elegido a *${starterName.toUpperCase()}* como tu compañero inicial.`, mentions: [sender] }, { quoted: msg });
+        }
+
+        else if (command === 'equipo' || command === 'team' || command === 'pequipo') {
+            let equipoText = `🎒 *EQUIPO POKÉMON DE @${senderClean}* 🎒\n\n`;
+            player.pokes.forEach((p, idx) => {
+                const activeMark = (idx === (player.activePoke || 0)) ? ' ⭐ (Activo)' : '';
+                equipoText += `• *[${idx + 1}]* ${p.name.toUpperCase()} - Nivel ${p.level} (Poder: ${p.power})${activeMark}\n`;
+            });
+            equipoText += `\nUsa \`${prefix}pselect <número>\` para cambiar tu Pokémon activo.`;
+            await sock.sendMessage(from, { text: equipoText, mentions: [sender] }, { quoted: msg });
+        }
+
+        else if (command === 'pselect' || command === 'changepoke') {
+            const index = parseInt(args[1]) - 1;
+            if (isNaN(index) || index < 0 || index >= player.pokes.length) {
+                return sock.sendMessage(from, { text: `⚠️ Número inválido. Revisa tu equipo con \`${prefix}equipo\`.` }, { quoted: msg });
+            }
+            player.activePoke = index;
+            saveData(data);
+            await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, mentions: [sender] }, { quoted: msg });
+        }
+
+        // ==========================================
+        // ⚔️ COMBATS POKÉMON
+        // ==========================================
+        else if (command === 'pcombatir' || command === 'pbattle') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}pcombatir @usuario\`` }, { quoted: msg });
+            
+            const targetClean = target.replace(/[^0-9]/g, '');
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.` }, { quoted: msg });
+
+            const targetPlayer = getPlayer(data, targetClean);
+            const activePoke1 = player.pokes[player.activePoke || 0];
+            const activePoke2 = targetPlayer.pokes[targetPlayer.activePoke || 0];
+
+            activeBattles[from] = {
+                p1: { id: senderClean, poke: activePoke1, hp: 170, maxHp: 170, moves: ["Cometa Draco", "Bola Sombra", "Placaje", "Hiperrayo"] },
+                p2: { id: targetClean, poke: activePoke2, hp: 170, maxHp: 170, moves: ["Brillo Mágico", "Impactrueno", "Arañazo", "Surf"] },
+                turn: senderClean
+            };
+
+            const battleText = `🎃 *¡COMBATE POKÉMON HALLOWEEN!* 🎃\n\n` +
+                               `🔴 @${senderClean} (*${activePoke1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activePoke2.name.toUpperCase()}*)\n\n` +
+                               `👉 Es el turno de @${senderClean}.\n` +
+                               `Usa \`${prefix}pm <1-4>\` para atacar.`;
+
+            await sock.sendMessage(from, { text: battleText, mentions: [sender, target] }, { quoted: msg });
+        }
+
+        else if (command === 'pm' || command === 'move') {
+            if (!activeBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate Pokémon activo en este grupo.` }, { quoted: msg });
+            const battle = activeBattles[from];
+
+            if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate.`, mentions: [sender] }, { quoted: msg });
+            }
+
+            if (battle.turn !== senderClean) {
+                return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar. Le toca a @${battle.turn}.`, mentions: [`${battle.turn}@s.whatsapp.net`] }, { quoted: msg });
+            }
+
+            const moveIndex = parseInt(args[1]) - 1;
+            const isP1 = battle.turn === battle.p1.id;
+            const attacker = isP1 ? battle.p1 : battle.p2;
+            const defender = isP1 ? battle.p2 : battle.p1;
+
+            if (isNaN(moveIndex) || moveIndex < 0 || moveIndex >= attacker.moves.length) {
+                return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}pm 1\`).` }, { quoted: msg });
+            }
+
+            const moveName = attacker.moves[moveIndex];
+            const damage = Math.floor(Math.random() * 45) + 10;
+            defender.hp = Math.max(0, defender.hp - damage);
+
+            const barLength = 10;
+            const filled1 = Math.round((battle.p1.hp / battle.p1.maxHp) * barLength);
+            const bar1 = '█'.repeat(Math.max(0, filled1)) + '░'.repeat(Math.max(0, barLength - filled1));
+            
+            const filled2 = Math.round((battle.p2.hp / battle.p2.maxHp) * barLength);
+            const bar2 = '█'.repeat(Math.max(0, filled2)) + '░'.repeat(Math.max(0, barLength - filled2));
+
+            battle.turn = isP1 ? battle.p2.id : battle.p1.id;
+
+            let response = `💥 *${attacker.poke.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño.\n\n`;
+            response += `${battle.p1.poke.name}: [${bar1}] ${battle.p1.hp}/${battle.p1.maxHp}\n`;
+            response += `${battle.p2.poke.name}: [${bar2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
+
+            if (defender.hp <= 0) {
+                response += `🏆 ¡*${attacker.poke.name.toUpperCase()}* ha ganado el combate! 🎉`;
+                delete activeBattles[from];
+            } else {
+                response += `👉 Turno de @${battle.turn}\nUsa \`${prefix}pm <1-4>\``;
+            }
+
+            await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender] }, { quoted: msg });
+        }
+
+        // ==========================================
+        // 📢 MODÉRATION & GROUPES
+        // ==========================================
+        else if (command === 'tag' || command === 'hidetag') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Este comando solo se puede usar en grupos.` }, { quoted: msg });
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo los administradores pueden usar este comando.` }, { quoted: msg });
 
@@ -405,9 +520,19 @@ function setupEvents(sock) {
             }
         }
 
-        // ==========================================
-        // 🚪 COMMANDE #KICK
-        // ==========================================
+        else if (command === 'antilink') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.` }, { quoted: msg });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            const opt = args[1]?.toLowerCase();
+            if (opt === 'on' || opt === 'off') {
+                groupConfig.antilink = (opt === 'on');
+                saveData(data);
+                await sock.sendMessage(from, { text: `🔗 Antilink activado en modo: *${opt.toUpperCase()}*.` }, { quoted: msg });
+            } else {
+                await sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}antilink on\` o \`${prefix}antilink off\`` }, { quoted: msg });
+            }
+        }
+
         else if (command === 'kick') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Este comando solo funciona en grupos.` }, { quoted: msg });
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo los administradores pueden expulsar usuarios.` }, { quoted: msg });
@@ -425,9 +550,6 @@ function setupEvents(sock) {
             }
         }
 
-        // ==========================================
-        // 👻 COMMANDE #LISTAAFK
-        // ==========================================
         else if (command === 'listaafk' || command === 'afklist') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.` }, { quoted: msg });
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
@@ -462,9 +584,6 @@ function setupEvents(sock) {
             }
         }
 
-        // ==========================================
-        // 👢 COMMANDE #KICKAFK
-        // ==========================================
         else if (command === 'kickafk') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.` }, { quoted: msg });
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
@@ -493,9 +612,6 @@ function setupEvents(sock) {
             }
         }
 
-        // ==========================================
-        // ✨ COMMANDE #BIENVENIDA
-        // ==========================================
         else if (command === 'bienvenida' || command === 'welcome') {
             if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.` }, { quoted: msg });
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
@@ -509,7 +625,7 @@ function setupEvents(sock) {
                 const customText = args.slice(1).join(' ');
                 if (!customText) {
                     return sock.sendMessage(from, { 
-                        text: `⚠️ Uso correcto:\n• \`${prefix}bienvenida on\` / \`off\`\n• \`${prefix}bienvenida <tu mensaje personalizado>\`\n*(Nota: Usa @user para mencionar al nuevo miembro)*` 
+                        text: `⚠️ Uso correcto:\n• \`${prefix}bienvenida on\` / \`off\`\n• \`${prefix}bienvenida <tu mensaje personalizado>\`` 
                     }, { quoted: msg });
                 }
                 groupConfig.customWelcome = customText;
@@ -520,7 +636,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 🎮 NOUVEAUX JEUX & ARCADE INÉDITS
+        // 🎮 JEUX & ARCADE & GACHA
         // ==========================================
         else if (command === 'ruleta' || command === 'roulette') {
             const bet = parseInt(args[1]);
@@ -581,9 +697,6 @@ function setupEvents(sock) {
             }
         }
 
-        // ==========================================
-        // 🃏 NOUVELLE CATÉGORIE GACHA & COLLECTION
-        // ==========================================
         else if (command === 'roll' || command === 'gacha') {
             const pool = ['Goku Super Saiyajin', 'Naruto Uzumaki', 'Saitama', 'Luffy Gear 5', 'Nezuko Kamado', 'Levi Ackerman', 'Rem (Re:Zero)', 'Goat Gojo'];
             const drawn = pool[Math.floor(Math.random() * pool.length)];
@@ -609,7 +722,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // ⚙️ CONFIGURATIONS (SEUIL AFK & ANTISPAM)
+        // ⚙️ CONFIGURATIONS (AFK & ANTISPAM)
         // ==========================================
         else if (command === 'setafk') {
             if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
@@ -618,7 +731,7 @@ function setupEvents(sock) {
 
             groupConfig.afkMinMsgs = limit;
             saveData(data);
-            await sock.sendMessage(from, { text: `✅ Umbral AFK actualizado. Ahora se considerará inactivo a quien tenga menos de *${limit}* mensajes.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `✅ Umbral AFK actualizado a *${limit}* mensajes.` }, { quoted: msg });
         }
 
         else if (command === 'antispam') {
@@ -628,41 +741,54 @@ function setupEvents(sock) {
             if (option === 'off' || option === 'on') {
                 groupConfig.antispam = (option === 'on');
                 saveData(data);
-                await sock.sendMessage(from, { text: `🛡️ El sistema Anti-Spam ha sido puesto en modo *${option.toUpperCase()}*.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🛡️ Anti-Spam puesto en modo *${option.toUpperCase()}*.` }, { quoted: msg });
             } else if (!isNaN(parseInt(args[1]))) {
                 const spamLimit = parseInt(args[1]);
                 groupConfig.spamLimit = spamLimit;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🛡️ Límite de mensajes por spam ajustado a *${spamLimit}* mensajes seguidos.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🛡️ Límite de spam ajustado a *${spamLimit}* mensajes.` }, { quoted: msg });
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso correcto:\n• \`${prefix}antispam on\` / \`off\`\n• \`${prefix}antispam <número de mensajes límite>\`` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}antispam on/off\` o \`${prefix}antispam <limite>\`` }, { quoted: msg });
             }
         }
 
         // ==========================================
-        // 🎵 YOUTUBE PLAY INTERACTIF
+        // 🎵 VRAIE RECHERCHE YOUTUBE DYNAMIQUE & MENU
         // ==========================================
         else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
             if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}youtube <canción o artista>\`` }, { quoted: msg });
 
-            const captionText = `YOUTUBE-PLAY\n\n` +
-                `Título: ${query.toUpperCase()} - Official Audio/Video\n` +
-                `Duración: 3:45\n` +
-                `Visitas: 1,420,500\n` +
-                `Autor: Team Dronix Music\n` +
-                `Publicado: Hace 2 semanas\n` +
-                `Url: https://youtu.be/dQw4w9WgXcQ\n\n` +
-                `Seleccione el formato que desea descargar abajo.\n\n` +
-                `🎵 ${prefix}mp3 ${query}\n` +
-                `🎬 ${prefix}mp4 ${query}\n` +
-                `📁 ${prefix}doc ${query}\n\n` +
-                `©${BOT_NAME}`;
+            try {
+                const searchResult = await yts(query);
+                const video = searchResult.videos[0];
 
-            await sock.sendMessage(from, { 
-                image: { url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=800&auto=format&fit=crop' }, 
-                caption: captionText 
-            }, { quoted: msg });
+                if (!video) {
+                    return sock.sendMessage(from, { text: `❌ No se encontró ningún resultado en YouTube para: "${query}"` }, { quoted: msg });
+                }
+
+                const captionText = `YOUTUBE-PLAY\n\n` +
+                    `Título: ${video.title}\n` +
+                    `Duración: ${video.timestamp}\n` +
+                    `Vistas: ${video.views.toLocaleString()}\n` +
+                    `Autor: ${video.author.name}\n` +
+                    `Publicado: ${video.ago}\n` +
+                    `Url: ${video.url}\n\n` +
+                    `Seleccione el formato que desea descargar abajo.\n\n` +
+                    `🎵 ${prefix}mp3 ${video.url}\n` +
+                    `🎬 ${prefix}mp4 ${video.url}\n` +
+                    `📁 ${prefix}doc ${video.url}\n\n` +
+                    `©${BOT_NAME}`;
+
+                await sock.sendMessage(from, { 
+                    image: { url: video.thumbnail }, 
+                    caption: captionText 
+                }, { quoted: msg });
+
+            } catch (err) {
+                console.error("Error en búsqueda YouTube:", err);
+                await sock.sendMessage(from, { text: `❌ Ocurrió un error al buscar en YouTube.` }, { quoted: msg });
+            }
         }
 
         else if (command === 'mp3') {
@@ -671,56 +797,51 @@ function setupEvents(sock) {
             await sock.sendMessage(from, { audio: { url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' }, mimetype: 'audio/mp4', ptt: false }, { quoted: msg });
         }
 
-        // ==========================================
-        // 📋 MENU PRINCIPAL STRUCTURÉ
-        // ==========================================
         else if (command === 'menu' || command === 'help' || command === 'allmenu') {
-            let menuText = `🤖 *SUBBOTS*\n` +
-                `Vinculación y ajustes del bot\n` +
-                `• \`${prefix}code\`\n` +
-                `• \`${prefix}setprimary\`\n` +
-                `• \`${prefix}bot\`\n\n` +
+            let menuText = `🤖 *SUBBOTS & MULTI-SESSION*\n` +
+                `• \`${prefix}code\`\n\n` +
                 
                 `📦 *GRUPO & MODERACIÓN*\n` +
-                `• \`${prefix}tag [mensaje]\` - Etiquetar a todos\n` +
-                `• \`${prefix}kick @user\` - Expulsar usuario\n` +
+                `• \`${prefix}tag [msg]\` - Etiquetar a todos\n` +
+                `• \`${prefix}kick @user\` - Expulsar\n` +
                 `• \`${prefix}listaafk\` - Ver inactivos\n` +
-                `• \`${prefix}kickafk\` - Expulsar inactivos\n` +
-                `• \`${prefix}setafk <num>\` - Configurar mínimo inactivos\n` +
-                `• \`${prefix}bienvenida <on/off/texto>\` - Personalizar bienvenida\n` +
-                `• \`${prefix}antispam <on/off/num>\` - Modificar antispam\n` +
-                `• \`${prefix}antilink\`\n\n` +
+                `• \`${prefix}kickafk\` - Sacar inactivos\n` +
+                `• \`${prefix}setafk <num>\` - Configurar umbral AFK\n` +
+                `• \`${prefix}bienvenida <on/off/txt>\` - Bienvenida\n` +
+                `• \`${prefix}antispam <on/off/num>\` - Anti-spam\n` +
+                `• \`${prefix}antilink <on/off>\` - Antilink\n\n` +
+
+                `🌿 *POKÉMON & COMBATES*\n` +
+                `• \`${prefix}pstart <poke>\` - Inicial\n` +
+                `• \`${prefix}equipo\` - Tu equipo\n` +
+                `• \`${prefix}pcombatir @user\` - Batalla\n\n` +
 
                 `🎮 *JUEGOS & ARCADE*\n` +
-                `• \`${prefix}ruleta <apuesta>\` - Jugar a la ruleta\n` +
-                `• \`${prefix}crime\` - Cometer un crimen\n` +
-                `• \`${prefix}robar @user\` - Robar a un miembro\n` +
-                `• \`${prefix}work\` - Trabajar y ganar coins\n` +
-                `• \`${prefix}bal\` - Ver balance\n\n` +
+                `• \`${prefix}ruleta <apuesta>\`\n` +
+                `• \`${prefix}crime\`\n` +
+                `• \`${prefix}robar @user\`\n` +
+                `• \`${prefix}work\`\n` +
+                `• \`${prefix}bal\`\n\n` +
 
                 `🃏 *GACHA & COLECCIÓN*\n` +
-                `• \`${prefix}roll\` - Invocar personajes\n` +
-                `• \`${prefix}harem\` - Ver tu colección\n\n` +
+                `• \`${prefix}roll\`\n` +
+                `• \`${prefix}harem\`\n\n` +
 
                 `📥 *MULTIMEDIA*\n` +
-                `• \`${prefix}youtube <búsqueda>\`\n` +
-                `• \`${prefix}sticker\``;
+                `• \`${prefix}youtube <busqueda>\``;
 
-            await sock.sendMessage(from, { 
-                image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop' }, 
-                caption: menuText 
-            }, { quoted: msg });
+            await sock.sendMessage(from, { image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop' }, caption: menuText }, { quoted: msg });
         }
 
         else if (command === 'ping') {
-            await sock.sendMessage(from, { text: `🦇 ¡Pong! Bot activo con juegos y categorías actualizadas.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🦇 ¡Pong! Bot activo con todas las funciones operativas.` }, { quoted: msg });
         }
 
         else if (command === 'work') {
             const earnings = Math.floor(Math.random() * 200) + 50;
             player.money += earnings;
             saveData(data);
-            await sock.sendMessage(from, { text: `🦇 ¡Trabajaste en la mansión y ganaste *$${earnings}* coins!` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🦇 ¡Trabajaste y ganaste *$${earnings}* coins!` }, { quoted: msg });
         }
 
         else if (command === 'bal') {
