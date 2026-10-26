@@ -145,12 +145,12 @@ app.post('/api/pairing', async (req, res) => {
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        const code = await startUserSession(cleanNumber);
+        const result = await startUserSession(cleanNumber);
 
-        if (!code) {
+        if (!result || !result.code) {
             return res.status(500).json({ error: "No se pudo generar el código, reintenta en unos segundos." });
         }
-        res.json({ code });
+        res.json({ code: result.code });
     } catch (err) {
         console.error("Error al generar código de emparejamiento:", err);
         res.status(500).json({ error: "Falló la generación del código." });
@@ -254,7 +254,7 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONFIGURACIÓN WASOCKET ULTRA-ROBUSTA ---
+// --- CONFIGURATION WASOCKET POUR DISPLAY CODE SUR WEBSITE ---
 async function startUserSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
     if (!fs.existsSync('./sessions')) {
@@ -279,36 +279,13 @@ async function startUserSession(cleanNumber) {
     setupEvents(sock);
 
     return new Promise((resolve) => {
-        let codeRequested = false;
-
-        const timer = setTimeout(async () => {
-            if (!codeRequested && !state.creds.registered) {
-                codeRequested = true;
-                try {
-                    let code = await sock.requestPairingCode(cleanNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    resolve(code);
-                } catch (error) {
-                    console.error("Error al pedir código de emparejamiento:", error);
-                    resolve(null);
-                }
-            }
-        }, 6000);
+        let codeSent = false;
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
 
-            if (connection === 'open' && !state.creds.registered && !codeRequested) {
-                codeRequested = true;
-                clearTimeout(timer);
-                try {
-                    let code = await sock.requestPairingCode(cleanNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    resolve(code);
-                } catch (error) {
-                    console.error("Error al pedir código de emparejamiento:", error);
-                    resolve(null);
-                }
+            if (connection === 'open') {
+                resolve({ success: true });
             }
 
             if (connection === 'close') {
@@ -324,13 +301,29 @@ async function startUserSession(cleanNumber) {
                 } else {
                     delete activeSessions[cleanNumber];
                 }
-                if (!codeRequested) {
-                    codeRequested = true;
-                    clearTimeout(timer);
+                if (!codeSent) {
+                    codeSent = true;
                     resolve(null);
                 }
             }
         });
+
+        setTimeout(async () => {
+            if (!state.creds.registered && !codeSent) {
+                try {
+                    let code = await sock.requestPairingCode(cleanNumber);
+                    code = code?.match(/.{1,4}/g)?.join("-") || code;
+                    codeSent = true;
+                    resolve({ code });
+                } catch (error) {
+                    console.error("Erreur pairing code:", error);
+                    if (!codeSent) {
+                        codeSent = true;
+                        resolve(null);
+                    }
+                }
+            }
+        }, 4000);
     });
 }
 
