@@ -1,5 +1,4 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
@@ -257,7 +256,7 @@ async function startUserSession(cleanNumber) {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
+        printQRInTerminal: false,
         browser: ["Ubuntu", "Chrome", "22.04.4"],
         logger: pino({ level: 'silent' })
     });
@@ -266,11 +265,7 @@ async function startUserSession(cleanNumber) {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if (qr) {
-            console.log(`[Session ${cleanNumber}] CODE QR Généré dans les logs.`);
-            qrcode.generate(qr, { small: true });
-        }
+        const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
@@ -296,7 +291,7 @@ async function startUserSession(cleanNumber) {
     setupEvents(sock);
 
     if (!state.creds.registered) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 4000));
         let code = await sock.requestPairingCode(cleanNumber);
         code = code?.match(/.{1,4}/g)?.join("-") || code;
         return code;
