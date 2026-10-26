@@ -10,6 +10,18 @@ const DATA_FILE = './data.json';
 const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
 const BOT_NAME = "TEAM DRONIX";
 
+const channelContext = {
+    contextInfo: {
+        forwardingScore: 999,
+        isForwarded: true,
+        forwardedNewsletterMessageInfo: {
+            newsletterJid: "0029VbAw5JxDjiOfYaxtEJ1B@newsletter",
+            newsletterName: "Suivre la chaîne TEAM DRONIX BOT sur WhatsApp",
+            serverMessageId: 1
+        }
+    }
+};
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json());
@@ -17,8 +29,6 @@ app.use(express.json());
 const activeSessions = {}; 
 const userSpamTracker = {};
 const activeBattles = {};
-const activeDbzBattles = {};
-const activeOpmBattles = {};
 
 app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
@@ -135,13 +145,7 @@ app.post('/api/pairing', async (req, res) => {
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        let code = null;
-        
-        for (let i = 0; i < 2; i++) {
-            code = await startUserSession(cleanNumber);
-            if (code) break;
-            await new Promise(r => setTimeout(r, 4000));
-        }
+        const code = await startUserSession(cleanNumber);
 
         if (!code) {
             return res.status(500).json({ error: "No se pudo generar el código, reintenta en unos segundos." });
@@ -293,7 +297,7 @@ async function startUserSession(cleanNumber) {
 
     setupEvents(sock);
 
-    await new Promise(resolve => setTimeout(resolve, 6000));
+    await new Promise(resolve => setTimeout(resolve, 8000));
 
     if (!state.creds.registered) {
         try {
@@ -324,7 +328,7 @@ function setupEvents(sock) {
                     const cleanNum = num.replace(/[^0-9]/g, '');
                     const defaultWelcome = `🎃 ¡Bienvenido/a @${cleanNum} a *${groupName}* en esta noche de brujas!\n\nDisfruta del grupo y diviértete con los minijuegos de ${BOT_NAME}. 🦇`;
                     const welcomeText = groupConfig.customWelcome || defaultWelcome;
-                    await sock.sendMessage(anu.id, { text: welcomeText, mentions: [num] });
+                    await sock.sendMessage(anu.id, { text: welcomeText, mentions: [num], ...channelContext });
                 }
             }
         } catch (e) {
@@ -376,7 +380,7 @@ function setupEvents(sock) {
                 try {
                     await sock.sendMessage(from, { delete: msg.key });
                     await sock.groupParticipantsUpdate(from, [sender], 'remove');
-                    await sock.sendMessage(from, { text: `⚠️ 🔗 @${senderClean} ha enviado un enlace prohibido y fue expulsado.`, mentions: [sender] });
+                    await sock.sendMessage(from, { text: `⚠️ 🔗 @${senderClean} ha enviado un enlace prohibido y fue expulsado.`, mentions: [sender], ...channelContext });
                 } catch(e) {}
                 return;
             }
@@ -392,7 +396,7 @@ function setupEvents(sock) {
                     userSpamTracker[senderClean].count += 1;
                     if (userSpamTracker[senderClean].count > (groupConfig.spamLimit || 5)) {
                         userSpamTracker[senderClean].count = 0;
-                        await sock.sendMessage(from, { text: `⚠️ 🦇 @${senderClean}, por favor evita hacer spam en el grupo.`, mentions: [sender] }, { quoted: msg });
+                        await sock.sendMessage(from, { text: `⚠️ 🦇 @${senderClean}, por favor evita hacer spam en el grupo.`, mentions: [sender], ...channelContext }, { quoted: msg });
                         return;
                     }
                 } else {
@@ -413,17 +417,17 @@ function setupEvents(sock) {
         // ==========================================
         if (command === 'pstart' || command === 'starter') {
             if (player.hasStarted) {
-                return sock.sendMessage(from, { text: `⚠️ ¡@${senderClean}, tú ya elegiste tu Pokémon inicial!`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ ¡@${senderClean}, tú ya elegiste tu Pokémon inicial!`, mentions: [sender], ...channelContext });
             }
             const starterName = args[1]?.toLowerCase();
             const validStarters = ['charmander', 'bulbasaur', 'squirtle', 'pikachu'];
             if (!validStarters.includes(starterName)) {
-                return sock.sendMessage(from, { text: `⚠️ Elige un Pokémon inicial válido:\n• \`${prefix}pstart charmander\`\n• \`${prefix}pstart bulbasaur\`\n• \`${prefix}pstart squirtle\`\n• \`${prefix}pstart pikachu\`` }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ Elige un Pokémon inicial válido:\n• \`${prefix}pstart charmander\`\n• \`${prefix}pstart bulbasaur\`\n• \`${prefix}pstart squirtle\`\n• \`${prefix}pstart pikachu\``, ...channelContext });
             }
             player.hasStarted = true;
             player.pokes = [{ name: starterName, level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
             saveData(data);
-            await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}! Has elegido a *${starterName.toUpperCase()}* como tu compañero inicial.`, mentions: [sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}! Has elegido a *${starterName.toUpperCase()}* como tu compañero inicial.`, mentions: [sender], ...channelContext });
         }
 
         else if (command === 'equipo' || command === 'team' || command === 'pequipo') {
@@ -433,29 +437,29 @@ function setupEvents(sock) {
                 equipoText += `• *[${idx + 1}]* ${p.name.toUpperCase()} - Nivel ${p.level} (Poder: ${p.power})${activeMark}\n`;
             });
             equipoText += `\nUsa \`${prefix}pselect <número>\` para cambiar tu Pokémon activo.`;
-            await sock.sendMessage(from, { text: equipoText, mentions: [sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: equipoText, mentions: [sender], ...channelContext });
         }
 
         else if (command === 'pselect' || command === 'changepoke') {
             const index = parseInt(args[1]) - 1;
             if (isNaN(index) || index < 0 || index >= player.pokes.length) {
-                return sock.sendMessage(from, { text: `⚠️ Número inválido. Revisa tu equipo con \`${prefix}equipo\`.` }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ Número inválido. Revisa tu equipo con \`${prefix}equipo\`.`, ...channelContext });
             }
             player.activePoke = index;
             saveData(data);
-            await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, mentions: [sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, mentions: [sender], ...channelContext });
         }
 
         // ==========================================
         // ⚔️ COMBATS POKÉMON
         // ==========================================
         else if (command === 'pcombatir' || command === 'pbattle') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.`, ...channelContext });
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}pcombatir @usuario\`` }, { quoted: msg });
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}pcombatir @usuario\``, ...channelContext });
             
             const targetClean = target.replace(/[^0-9]/g, '');
-            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.` }, { quoted: msg });
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.`, ...channelContext });
 
             const targetPlayer = getPlayer(data, targetClean);
             const activePoke1 = player.pokes[player.activePoke || 0];
@@ -472,19 +476,19 @@ function setupEvents(sock) {
                                `👉 Es el turno de @${senderClean}.\n` +
                                `Usa \`${prefix}pm <1-4>\` para atacar.`;
 
-            await sock.sendMessage(from, { text: battleText, mentions: [sender, target] }, { quoted: msg });
+            await sock.sendMessage(from, { text: battleText, mentions: [sender, target], ...channelContext });
         }
 
         else if (command === 'pm' || command === 'move') {
-            if (!activeBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate Pokémon activo en este grupo.` }, { quoted: msg });
+            if (!activeBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate Pokémon activo en este grupo.`, ...channelContext });
             const battle = activeBattles[from];
 
             if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
-                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate.`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate.`, mentions: [sender], ...channelContext });
             }
 
             if (battle.turn !== senderClean) {
-                return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar. Le toca a @${battle.turn}.`, mentions: [`${battle.turn}@s.whatsapp.net`] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar. Le toca a @${battle.turn}.`, mentions: [`${battle.turn}@s.whatsapp.net`], ...channelContext });
             }
 
             const moveIndex = parseInt(args[1]) - 1;
@@ -493,7 +497,7 @@ function setupEvents(sock) {
             const defender = isP1 ? battle.p2 : battle.p1;
 
             if (isNaN(moveIndex) || moveIndex < 0 || moveIndex >= attacker.moves.length) {
-                return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}pm 1\`).` }, { quoted: msg });
+                return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}pm 1\`).`, ...channelContext });
             }
 
             const moveName = attacker.moves[moveIndex];
@@ -520,60 +524,60 @@ function setupEvents(sock) {
                 response += `👉 Turno de @${battle.turn}\nUsa \`${prefix}pm <1-4>\``;
             }
 
-            await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender], ...channelContext });
         }
 
         // ==========================================
         // 📢 MODÉRATION & GROUPES
         // ==========================================
         else if (command === 'tag' || command === 'hidetag') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Este comando solo se puede usar en grupos.` }, { quoted: msg });
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo los administradores pueden usar este comando.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Este comando solo se puede usar en grupos.`, ...channelContext });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo los administradores pueden usar este comando.`, ...channelContext });
 
             const tagMessage = args.slice(1).join(' ') || "¡Atención a todos los miembros!";
             try {
                 const groupMetadata = await sock.groupMetadata(from);
                 const participants = groupMetadata.participants.map(p => p.id);
                 
-                await sock.sendMessage(from, { text: `📢 *AVISO GENERAL*:\n\n${tagMessage}`, mentions: participants }, { quoted: msg });
+                await sock.sendMessage(from, { text: `📢 *AVISO GENERAL*:\n\n${tagMessage}`, mentions: participants, ...channelContext });
             } catch (e) {
-                await sock.sendMessage(from, { text: `❌ Error al realizar el tag masivo.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Error al realizar el tag masivo.`, ...channelContext });
             }
         }
 
         else if (command === 'antilink') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.` }, { quoted: msg });
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.`, ...channelContext });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.`, ...channelContext });
             const opt = args[1]?.toLowerCase();
             if (opt === 'on' || opt === 'off') {
                 groupConfig.antilink = (opt === 'on');
                 saveData(data);
-                await sock.sendMessage(from, { text: `🔗 Antilink activado en modo: *${opt.toUpperCase()}*.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🔗 Antilink activado en modo: *${opt.toUpperCase()}*.`, ...channelContext });
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}antilink on\` o \`${prefix}antilink off\`` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}antilink on\` o \`${prefix}antilink off\``, ...channelContext });
             }
         }
 
         else if (command === 'kick') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Este comando solo funciona en grupos.` }, { quoted: msg });
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo los administradores pueden expulsar usuarios.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Este comando solo funciona en grupos.`, ...channelContext });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo los administradores pueden expulsar usuarios.`, ...channelContext });
 
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
                            (msg.message.extendedTextMessage?.contextInfo?.participant);
 
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta o responde al mensaje de la persona que deseas expulsar: \`${prefix}kick @usuario\`` }, { quoted: msg });
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta o responde al mensaje de la persona que deseas expulsar: \`${prefix}kick @usuario\``, ...channelContext });
 
             try {
                 await sock.groupParticipantsUpdate(from, [target], 'remove');
-                await sock.sendMessage(from, { text: `👢 Usuario expulsado exitosamente del grupo.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `👢 Usuario expulsado exitosamente del grupo.`, ...channelContext });
             } catch (e) {
-                await sock.sendMessage(from, { text: `❌ No se pudo expulsar al usuario. Asegúrate de que el bot sea administrador.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ No se pudo expulsar al usuario. Asegúrate de que el bot sea administrador.`, ...channelContext });
             }
         }
 
         else if (command === 'listaafk' || command === 'afklist') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.` }, { quoted: msg });
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.`, ...channelContext });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.`, ...channelContext });
 
             try {
                 const groupMetadata = await sock.groupMetadata(from);
@@ -599,15 +603,15 @@ function setupEvents(sock) {
                 }
 
                 const mentions = inactiveMembers.map(p => p.id);
-                await sock.sendMessage(from, { text: listText, mentions }, { quoted: msg });
+                await sock.sendMessage(from, { text: listText, mentions, ...channelContext });
             } catch (e) {
-                await sock.sendMessage(from, { text: `❌ Error al generar la lista AFK.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Error al generar la lista AFK.`, ...channelContext });
             }
         }
 
         else if (command === 'kickafk') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.` }, { quoted: msg });
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.`, ...channelContext });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.`, ...channelContext });
 
             try {
                 const groupMetadata = await sock.groupMetadata(from);
@@ -622,37 +626,38 @@ function setupEvents(sock) {
                 });
 
                 if (inactiveMembers.length === 0) {
-                    return sock.sendMessage(from, { text: `✨ No hay miembros inactivos para expulsar (los admins se protegen automáticamente).` }, { quoted: msg });
+                    return sock.sendMessage(from, { text: `✨ No hay miembros inactivos para expulsar (los admins se protegen automáticamente).`, ...channelContext });
                 }
 
                 const toKick = inactiveMembers.map(p => p.id);
                 await sock.groupParticipantsUpdate(from, toKick, 'remove');
-                await sock.sendMessage(from, { text: `👢 Se han expulsado ${toKick.length} miembros inactivos (AFK).` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `👢 Se han expulsado ${toKick.length} miembros inactivos (AFK).`, ...channelContext });
             } catch (e) {
-                await sock.sendMessage(from, { text: `❌ Error al expulsar inactivos. Asegúrate de que el bot sea admin.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Error al expulsar inactivos. Asegúrate de que el bot sea admin.`, ...channelContext });
             }
         }
 
         else if (command === 'bienvenida' || command === 'welcome') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.` }, { quoted: msg });
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo disponible en grupos.`, ...channelContext });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.`, ...channelContext });
 
             const option = args[1]?.toLowerCase();
             if (option === 'off' || option === 'on') {
                 groupConfig.bienvenida = (option === 'on');
                 saveData(data);
-                await sock.sendMessage(from, { text: `✨ Los mensajes de bienvenida han sido puestos en modo *${option.toUpperCase()}*.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `✨ Los mensajes de bienvenida han sido puestos en modo *${option.toUpperCase()}*.`, ...channelContext });
             } else {
                 const customText = args.slice(1).join(' ');
                 if (!customText) {
                     return sock.sendMessage(from, { 
-                        text: `⚠️ Uso correcto:\n• \`${prefix}bienvenida on\` / \`off\`\n• \`${prefix}bienvenida <tu mensaje personalizado>\`` 
-                    }, { quoted: msg });
+                        text: `⚠️ Uso correcto:\n• \`${prefix}bienvenida on\` / \`off\`\n• \`${prefix}bienvenida <tu mensaje personalizado>\``,
+                        ...channelContext
+                    });
                 }
                 groupConfig.customWelcome = customText;
                 groupConfig.bienvenida = true;
                 saveData(data);
-                await sock.sendMessage(from, { text: `✅ ¡Mensaje de bienvenida actualizado con éxito para este grupo!` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `✅ ¡Mensaje de bienvenida actualizado con éxito para este grupo!`, ...channelContext });
             }
         }
 
@@ -661,19 +666,19 @@ function setupEvents(sock) {
         // ==========================================
         else if (command === 'ruleta' || command === 'roulette') {
             const bet = parseInt(args[1]);
-            if (isNaN(bet) || bet <= 0) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}ruleta <cantidad de coins>\`` }, { quoted: msg });
-            if (player.money < bet) return sock.sendMessage(from, { text: `❌ No tienes suficientes coins para apostar esa cantidad.` }, { quoted: msg });
+            if (isNaN(bet) || bet <= 0) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}ruleta <cantidad de coins>\``, ...channelContext });
+            if (player.money < bet) return sock.sendMessage(from, { text: `❌ No tienes suficientes coins para apostar esa cantidad.`, ...channelContext });
 
             const win = Math.random() < 0.45;
             if (win) {
                 const winnings = bet * 2;
                 player.money += winnings;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🎰 ¡La ruleta giró y cayó en la suerte! Has ganado *$${winnings}* coins. 🎉`, mentions: [sender] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🎰 ¡La ruleta giró y cayó en la suerte! Has ganado *$${winnings}* coins. 🎉`, mentions: [sender], ...channelContext });
             } else {
                 player.money -= bet;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🎰 La ruleta se detuvo en zona roja... Perdiste tus *$${bet}* coins. 😢`, mentions: [sender] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🎰 La ruleta se detuvo en zona roja... Perdiste tus *$${bet}* coins. 😢`, mentions: [sender], ...channelContext });
             }
         }
 
@@ -683,25 +688,25 @@ function setupEvents(sock) {
                 const loot = Math.floor(Math.random() * 400) + 100;
                 player.money += loot;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🥷 ¡Robaste con éxito la tienda nocturna y conseguiste *$${loot}* coins!`, mentions: [sender] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🥷 ¡Robaste con éxito la tienda nocturna y conseguiste *$${loot}* coins!`, mentions: [sender], ...channelContext });
             } else {
                 const fine = Math.floor(Math.random() * 150) + 50;
                 player.money = Math.max(0, player.money - fine);
                 saveData(data);
-                await sock.sendMessage(from, { text: `🚨 ¡La policía te atrapó huyendo! Pagaste una multa de *$${fine}* coins.`, mentions: [sender] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🚨 ¡La policía te atrapó huyendo! Pagaste una multa de *$${fine}* coins.`, mentions: [sender], ...channelContext });
             }
         }
 
         else if (command === 'robar' || command === 'rob') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo se puede robar en grupos.` }, { quoted: msg });
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo se puede robar en grupos.`, ...channelContext });
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Debes etiquetar a la víctima: \`${prefix}robar @usuario\`` }, { quoted: msg });
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Debes etiquetar a la víctima: \`${prefix}robar @usuario\``, ...channelContext });
 
             const targetClean = target.replace(/[^0-9]/g, '');
-            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No te puedes robar a ti mismo.` }, { quoted: msg });
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No te puedes robar a ti mismo.`, ...channelContext });
 
             const targetPlayer = getPlayer(data, targetClean);
-            if (targetPlayer.money < 50) return sock.sendMessage(from, { text: `❌ Ese usuario es muy pobre, no vale la pena robarle.` }, { quoted: msg });
+            if (targetPlayer.money < 50) return sock.sendMessage(from, { text: `❌ Ese usuario es muy pobre, no vale la pena robarle.`, ...channelContext });
 
             const success = Math.random() < 0.35;
             if (success) {
@@ -709,12 +714,12 @@ function setupEvents(sock) {
                 targetPlayer.money -= stolen;
                 player.money += stolen;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🦹 ¡Le robaste con éxito *$${stolen}* coins a @${targetClean}!`, mentions: [sender, target] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🦹 ¡Le robaste con éxito *$${stolen}* coins a @${targetClean}!`, mentions: [sender, target], ...channelContext });
             } else {
                 const penalty = 75;
                 player.money = Math.max(0, player.money - penalty);
                 saveData(data);
-                await sock.sendMessage(from, { text: `💥 ¡Intentaste robar a @${targetClean} pero te descubrieron! Pagaste *$${penalty}* de compensación.`, mentions: [sender, target] }, { quoted: msg });
+                await sock.sendMessage(from, { text: `💥 ¡Intentaste robar a @${targetClean} pero te descubrieron! Pagaste *$${penalty}* de compensación.`, mentions: [sender, target], ...channelContext });
             }
         }
 
@@ -726,50 +731,50 @@ function setupEvents(sock) {
             player.harem.push(drawn);
             saveData(data);
 
-            await sock.sendMessage(from, { text: `🎁 ¡Has invocado y obtenido a *${drawn}* para tu colección!\nUsa \`${prefix}harem\` para ver tus personajes.`, mentions: [sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🎁 ¡Has invocado y obtenido a *${drawn}* para tu colección!\nUsa \`${prefix}harem\` para ver tus personajes.`, mentions: [sender], ...channelContext });
         }
 
         else if (command === 'harem' || command === 'waifus') {
             player.harem = player.harem || [];
             if (player.harem.length === 0) {
-                return sock.sendMessage(from, { text: `📭 Tu harem está vacío. Usa \`${prefix}roll\` para invocar personajes.`, mentions: [sender] }, { quoted: msg });
+                return sock.sendMessage(from, { text: `📭 Tu harem está vacío. Usa \`${prefix}roll\` para invocar personajes.`, mentions: [sender], ...channelContext });
             }
 
             let haremText = `🌟 *COLECCIÓN DE PERSONAJES DE @${senderClean}* 🌟\n\n`;
             player.harem.forEach((item, idx) => {
                 haremText += `${idx + 1}. ${item}\n`;
             });
-            await sock.sendMessage(from, { text: haremText, mentions: [sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: haremText, mentions: [sender], ...channelContext });
         }
 
         // ==========================================
         // ⚙️ CONFIGURATIONS (AFK & ANTISPAM)
         // ==========================================
         else if (command === 'setafk') {
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.`, ...channelContext });
             const limit = parseInt(args[1]);
-            if (isNaN(limit) || limit < 0) return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}setafk <número mínimo de mensajes>\`` }, { quoted: msg });
+            if (isNaN(limit) || limit < 0) return sock.sendMessage(from, { text: `⚠️ Uso correcto: \`${prefix}setafk <número mínimo de mensajes>\``, ...channelContext });
 
             groupConfig.afkMinMsgs = limit;
             saveData(data);
-            await sock.sendMessage(from, { text: `✅ Umbral AFK actualizado a *${limit}* mensajes.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `✅ Umbral AFK actualizado a *${limit}* mensajes.`, ...channelContext });
         }
 
         else if (command === 'antispam') {
-            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.` }, { quoted: msg });
+            if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: `❌ Solo administradores.`, ...channelContext });
             const option = args[1]?.toLowerCase();
             
             if (option === 'off' || option === 'on') {
                 groupConfig.antispam = (option === 'on');
                 saveData(data);
-                await sock.sendMessage(from, { text: `🛡️ Anti-Spam puesto en modo *${option.toUpperCase()}*.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🛡️ Anti-Spam puesto en modo *${option.toUpperCase()}*.`, ...channelContext });
             } else if (!isNaN(parseInt(args[1]))) {
                 const spamLimit = parseInt(args[1]);
                 groupConfig.spamLimit = spamLimit;
                 saveData(data);
-                await sock.sendMessage(from, { text: `🛡️ Límite de spam ajustado a *${spamLimit}* mensajes.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🛡️ Límite de spam ajustado a *${spamLimit}* mensajes.`, ...channelContext });
             } else {
-                await sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}antispam on/off\` o \`${prefix}antispam <limite>\`` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}antispam on/off\` o \`${prefix}antispam <limite>\``, ...channelContext });
             }
         }
 
@@ -778,14 +783,14 @@ function setupEvents(sock) {
         // ==========================================
         else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
-            if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}youtube <canción o artista>\`` }, { quoted: msg });
+            if (!query) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}youtube <canción o artista>\``, ...channelContext });
 
             try {
                 const searchResult = await yts(query);
                 const video = searchResult.videos[0];
 
                 if (!video) {
-                    return sock.sendMessage(from, { text: `❌ No se encontró ningún resultado en YouTube para: "${query}"` }, { quoted: msg });
+                    return sock.sendMessage(from, { text: `❌ No se encontró ningún resultado en YouTube para: "${query}"`, ...channelContext });
                 }
 
                 const captionText = `YOUTUBE-PLAY\n\n` +
@@ -803,19 +808,20 @@ function setupEvents(sock) {
 
                 await sock.sendMessage(from, { 
                     image: { url: video.thumbnail }, 
-                    caption: captionText 
-                }, { quoted: msg });
+                    caption: captionText,
+                    ...channelContext
+                });
 
             } catch (err) {
                 console.error("Error en búsqueda YouTube:", err);
-                await sock.sendMessage(from, { text: `❌ Ocurrió un error al buscar en YouTube.` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `❌ Ocurrió un error al buscar en YouTube.`, ...channelContext });
             }
         }
 
         else if (command === 'mp3') {
-            await sock.sendMessage(from, { text: `🎵 Descargando audio en formato MP3... Por favor espere.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🎵 Descargando audio en formato MP3... Por favor espere.`, ...channelContext });
             await new Promise(r => setTimeout(r, 2000));
-            await sock.sendMessage(from, { audio: { url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' }, mimetype: 'audio/mp4', ptt: false }, { quoted: msg });
+            await sock.sendMessage(from, { audio: { url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' }, mimetype: 'audio/mp4', ptt: false, ...channelContext });
         }
 
         else if (command === 'menu' || command === 'help' || command === 'allmenu') {
@@ -851,22 +857,22 @@ function setupEvents(sock) {
                 `📥 *MULTIMEDIA*\n` +
                 `• \`${prefix}youtube <busqueda>\``;
 
-            await sock.sendMessage(from, { image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop' }, caption: menuText }, { quoted: msg });
+            await sock.sendMessage(from, { image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop' }, caption: menuText, ...channelContext });
         }
 
         else if (command === 'ping') {
-            await sock.sendMessage(from, { text: `🦇 ¡Pong! Bot activo con todas las funciones operativas.` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🦇 ¡Pong! Bot activo con canal vinculado.`, ...channelContext });
         }
 
         else if (command === 'work') {
             const earnings = Math.floor(Math.random() * 200) + 50;
             player.money += earnings;
             saveData(data);
-            await sock.sendMessage(from, { text: `🦇 ¡Trabajaste y ganaste *$${earnings}* coins!` }, { quoted: msg });
+            await sock.sendMessage(from, { text: `🦇 ¡Trabajaste y ganaste *$${earnings}* coins!`, ...channelContext });
         }
 
         else if (command === 'bal') {
-            await sock.sendMessage(from, { text: `💰 *BALANCE DE @${senderClean}*\n\n• Coins: $${player.money}`, mentions: [sender] }, { quoted: msg });
+            await sock.sendMessage(from, { text: `💰 *BALANCE DE @${senderClean}*\n\n• Coins: $${player.money}`, mentions: [sender], ...channelContext });
         }
     });
 }
