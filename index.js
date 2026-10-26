@@ -3,6 +3,7 @@ const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
+const http = require('http');
 
 const DATA_FILE = './data.json';
 const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
@@ -114,6 +115,16 @@ app.post('/api/pairing', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`🌐 Servidor web activo en puerto ${PORT}`);
     startUserSession('56928637216');
+
+    // --- SYSTÈME D'AUTO-PING INTERNE (Toutes les 30 secondes) ---
+    setInterval(() => {
+        const url = process.env.RENDER_EXTERNAL_URL ? `${process.env.RENDER_EXTERNAL_URL}/ping` : `http://localhost:${PORT}/ping`;
+        http.get(url, (res) => {
+            console.log(`🔄 [Auto-Ping 30s] Statut: ${res.statusCode} (Bot maintenu éveillé)`);
+        }).on('error', (err) => {
+            console.log(`⚠️ [Auto-Ping 30s] Erreur: ${err.message}`);
+        });
+    }, 30000); // 30000 ms = 30 secondes
 });
 
 function loadData() {
