@@ -1,10 +1,11 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
 const http = require('http');
 const https = require('https');
 const yts = require('yt-search');
+const QRCode = require('qrcode');
 
 const DATA_FILE = './data.json';
 const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
@@ -34,7 +35,7 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
-// --- PANEL WEB MULTI-SESSION THÈME HALLOWEEN ---
+// --- PANEL WEB MULTI-SESSION CON QR CODE (THÈME HALLOWEEN) ---
 app.get('/', (req, res) => {
     const sessionDirs = fs.existsSync('./sessions') ? fs.readdirSync('./sessions') : [];
     const connectedNumbers = sessionDirs.map(dir => dir.replace('session_', ''));
@@ -79,19 +80,24 @@ app.get('/', (req, res) => {
         .sessions-list { margin-top: 20px; text-align: left; width: 100%; border-top: 1px solid #4a154b; padding-top: 15px; }
         .session-item { display: flex; justify-content: space-between; align-items: center; background: #08030f; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 14px; }
         .btn-del { background: #ff3366; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; width: auto; margin: 0; }
-        #codeDisplay { margin-top: 20px; font-size: 22px; font-weight: bold; color: #00ffcc; word-break: break-all; text-shadow: 0 0 10px rgba(0,255,204,0.4); }
+        #qrContainer { margin-top: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #qrImage { width: 220px; height: 220px; border: 3px solid #ff7518; border-radius: 12px; background: white; padding: 10px; display: none; }
+        #statusText { color: #00ffcc; margin-top: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="panel">
             <h1>🎃 TEAM DRONIX 🦇</h1>
-            <div class="subtitle">Multi-Session Pairing Panel</div>
+            <div class="subtitle">Multi-Session QR Panel</div>
             
-            <input type="text" id="phone" placeholder="Número (ej: 56912345678)">
-            <button onclick="requestPairing()">Añadir Nueva Sesión</button>
+            <input type="text" id="phone" placeholder="Tu número (ej: 56912345678)">
+            <button onclick="requestQR()">Generar Código QR</button>
             
-            <div id="codeDisplay"></div>
+            <div id="qrContainer">
+                <p id="statusText"></p>
+                <img id="qrImage" alt="Escanea con tu WhatsApp" />
+            </div>
 
             <div class="sessions-list">
                 <h3 style="color: #b388ff; font-size: 14px; margin-bottom: 10px;">📱 Sesiones Registradas:</h3>
@@ -106,11 +112,15 @@ app.get('/', (req, res) => {
         </div>
     </div>
     <script>
-        async function requestPairing() {
+        async function requestQR() {
             const phone = document.getElementById('phone').value.trim();
-            const display = document.getElementById('codeDisplay');
-            if(!phone) { display.innerText = "❌ Ingrese un número"; return; }
-            display.innerText = "⏳ Generando código...";
+            const statusText = document.getElementById('statusText');
+            const qrImage = document.getElementById('qrImage');
+
+            if(!phone) { statusText.innerText = "❌ Ingrese un número"; return; }
+            statusText.innerText = "⏳ Generando Código QR...";
+            qrImage.style.display = 'none';
+
             try {
                 const res = await fetch('/api/pairing', {
                     method: 'POST',
@@ -118,9 +128,16 @@ app.get('/', (req, res) => {
                     body: JSON.stringify({ phoneNumber: phone })
                 });
                 const data = await res.json();
-                if(data.code) { display.innerText = "🔑 CÓDIGO: " + data.code; }
-                else { display.innerText = "❌ " + (data.error || "Error al generar"); }
-            } catch(e) { display.innerText = "❌ Error de conexión"; }
+                if(data.qrCodeUrl) { 
+                    statusText.innerText = "📷 ¡Escanea este QR con tu WhatsApp!";
+                    qrImage.src = data.qrCodeUrl;
+                    qrImage.style.display = 'block';
+                } else if(data.success) {
+                    statusText.innerText = "🟢 ¡Esta sesión ya está conectada y activa!";
+                } else { 
+                    statusText.innerText = "❌ " + (data.error || "Error al generar QR"); 
+                }
+            } catch(e) { statusText.innerText = "❌ Error de conexión"; }
         }
 
         async function deleteSession(phone) {
@@ -143,31 +160,33 @@ app.post('/api/pairing', async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
 
-    try {
-        const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        const result = await startUserSession(cleanNumber);
+    const cleanNumber = String(phoneNumber).replace(/[^0-9]/g, '');
+    if (cleanNumber.length < 8 || cleanNumber.length > 15) {
+        return res.status(400).json({ error: "Número inválido. Usa formato internacional (ej: 56912345678)" });
+    }
 
-        if (!result || !result.code) {
-            return res.status(500).json({ error: "No se pudo generar el código, reintenta en unos segundos." });
+    try {
+        const result = await startSessionQR(cleanNumber);
+        if (!result) {
+            return res.status(500).json({ error: "No se pudo generar el QR, reintenta en unos segundos." });
         }
-        res.json({ code: result.code });
+        res.json(result);
     } catch (err) {
-        console.error("Error al generar código de emparejamiento:", err);
-        res.status(500).json({ error: "Falló la generación del código." });
+        console.error("Error al generar QR:", err);
+        res.status(500).json({ error: "Falló la generación del código QR." });
     }
 });
 
 app.post('/api/delete-session', (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "Número no proporcionado" });
-
-    const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+    const cleanNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     const sessionDir = `./sessions/session_${cleanNumber}`;
-
     try {
         if (activeSessions[cleanNumber]) {
-            try { activeSessions[cleanNumber].end(); } catch(e){}
+            const s = activeSessions[cleanNumber];
             delete activeSessions[cleanNumber];
+            try { s.end(undefined); } catch (e) {}
         }
         if (fs.existsSync(sessionDir)) {
             fs.rmSync(sessionDir, { recursive: true, force: true });
@@ -194,15 +213,12 @@ app.listen(PORT, () => {
 });
 
 function initAllSessions() {
-    if (fs.existsSync('./sessions')) {
-        const dirs = fs.readdirSync('./sessions');
-        dirs.forEach(dir => {
-            if (dir.startsWith('session_')) {
-                const cleanNumber = dir.replace('session_', '');
-                console.log(`🔄 Reconnecting existing session: ${cleanNumber}`);
-                startUserSession(cleanNumber).catch(console.error);
-            }
-        });
+    if (!fs.existsSync('./sessions')) return;
+    for (const dir of fs.readdirSync('./sessions')) {
+        if (!dir.startsWith('session_')) continue;
+        const cleanNumber = dir.replace('session_', '');
+        console.log(`🔄 Reconnecting existing session: ${cleanNumber}`);
+        connectSession(cleanNumber).catch(console.error);
     }
 }
 
@@ -254,76 +270,117 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONFIGURATION WASOCKET POUR DISPLAY CODE SUR WEBSITE ---
-async function startUserSession(cleanNumber) {
+// --- CONEXIÓN / RECONEXIÓN NORMAL ---
+async function connectSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
-    if (!fs.existsSync('./sessions')) {
-        fs.mkdirSync('./sessions', { recursive: true });
-    }
-
-    if (!fs.existsSync(sessionDir)) {
-        fs.mkdirSync(sessionDir, { recursive: true });
-    }
+    fs.mkdirSync(sessionDir, { recursive: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
+    let version;
+    try { ({ version } = await fetchLatestBaileysVersion()); } catch (e) {}
+
     const sock = makeWASocket({
+        ...(version ? { version } : {}),
         auth: state,
         printQRInTerminal: false,
-        browser: ['Ubuntu', 'Edge', '110.0.1587.56'],
-        logger: pino({ level: 'silent' })
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
+        logger: pino({ level: 'silent' }),
+        syncFullHistory: false,
+        markOnlineOnConnect: false
     });
 
     activeSessions[cleanNumber] = sock;
     sock.ev.on('creds.update', saveCreds);
     setupEvents(sock);
 
-    return new Promise((resolve) => {
-        let codeSent = false;
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
 
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect } = update;
+        if (connection === 'open') {
+            console.log(`🟢 Sesión conectada: ${cleanNumber}`);
+        }
 
-            if (connection === 'open') {
-                resolve({ success: true });
+        if (connection === 'close') {
+            if (activeSessions[cleanNumber] !== sock) return;
+
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            if (statusCode === DisconnectReason.loggedOut) {
+                delete activeSessions[cleanNumber];
+                try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (e) {}
+                return;
             }
 
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                
-                if (statusCode === 401) {
-                    try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch(e){}
-                }
+            setTimeout(() => connectSession(cleanNumber).catch(console.error), 5000);
+        }
+    });
 
-                if (shouldReconnect && statusCode !== 401) {
-                    setTimeout(() => startUserSession(cleanNumber), 5000);
-                } else {
-                    delete activeSessions[cleanNumber];
-                }
-                if (!codeSent) {
-                    codeSent = true;
+    return sock;
+}
+
+// --- GENERACIÓN DE QR EN BASE64 PARA LA WEB ---
+function startSessionQR(cleanNumber) {
+    const sessionDir = `./sessions/session_${cleanNumber}`;
+
+    if (activeSessions[cleanNumber] && activeSessions[cleanNumber].authState?.creds?.registered) {
+        return Promise.resolve({ success: true });
+    }
+
+    // Limpieza previa si existía un intento no registrado
+    if (activeSessions[cleanNumber]) {
+        try { activeSessions[cleanNumber].end(undefined); } catch (e) {}
+        delete activeSessions[cleanNumber];
+    }
+
+    return new Promise(async (resolve) => {
+        fs.mkdirSync(sessionDir, { recursive: true });
+        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+
+        let version;
+        try { ({ version } = await fetchLatestBaileysVersion()); } catch (e) {}
+
+        const sock = makeWASocket({
+            ...(version ? { version } : {}),
+            auth: state,
+            printQRInTerminal: false,
+            browser: ['Ubuntu', 'Chrome', '20.0.04'],
+            logger: pino({ level: 'silent' })
+        });
+
+        activeSessions[cleanNumber] = sock;
+        sock.ev.on('creds.update', saveCreds);
+        setupEvents(sock);
+
+        let qrSent = false;
+
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, qr } = update;
+
+            if (qr && !qrSent) {
+                qrSent = true;
+                try {
+                    const qrCodeUrl = await QRCode.toDataURL(qr);
+                    resolve({ qrCodeUrl });
+                } catch (err) {
+                    console.error("Error al convertir QR a imagen:", err);
                     resolve(null);
                 }
             }
-        });
 
-        setTimeout(async () => {
-            if (!state.creds.registered && !codeSent) {
-                try {
-                    let code = await sock.requestPairingCode(cleanNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    codeSent = true;
-                    resolve({ code });
-                } catch (error) {
-                    console.error("Erreur pairing code:", error);
-                    if (!codeSent) {
-                        codeSent = true;
-                        resolve(null);
-                    }
+            if (connection === 'open') {
+                console.log(`🟢 Sesión emparejada exitosamente: ${cleanNumber}`);
+                if (!qrSent) {
+                    qrSent = true;
+                    resolve({ success: true });
                 }
             }
-        }, 4000);
+
+            if (connection === 'close' && !qrSent) {
+                qrSent = true;
+                delete activeSessions[cleanNumber];
+                resolve(null);
+            }
+        });
     });
 }
 
