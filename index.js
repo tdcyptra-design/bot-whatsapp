@@ -124,7 +124,7 @@ app.listen(PORT, () => {
         }).on('error', (err) => {
             console.log(`⚠️ [Auto-Ping 30s] Erreur: ${err.message}`);
         });
-    }, 30000); // 30000 ms = 30 secondes
+    }, 30000); 
 });
 
 function loadData() {
@@ -181,6 +181,10 @@ async function startUserSession(cleanNumber) {
         fs.mkdirSync('./sessions', { recursive: true });
     }
 
+    if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
     const sock = makeWASocket({
@@ -217,7 +221,7 @@ async function startUserSession(cleanNumber) {
                 delete activeSessions[cleanNumber];
             }
         } else if (connection === 'open') {
-            console.log(`¡[Session ${cleanNumber}] Bot conectado correctamente a WhatsApp!`);
+            console.log(`¡[Session ${cleanNumber}] Bot conectado correctamente à WhatsApp!`);
         }
     });
 
