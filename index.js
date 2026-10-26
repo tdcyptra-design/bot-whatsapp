@@ -136,6 +136,9 @@ app.post('/api/pairing', async (req, res) => {
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
         const code = await startUserSession(cleanNumber);
+        if (!code) {
+            return res.status(500).json({ error: "No se pudo generar el código, reintenta en unos segundos." });
+        }
         res.json({ code });
     } catch (err) {
         console.error("Error al generar código de emparejamiento:", err);
@@ -174,9 +177,9 @@ app.listen(PORT, () => {
         const client = targetUrl.startsWith('https') ? https : http;
 
         client.get(targetUrl, (res) => {}).on('error', (err) => {
-            console.log(`⚠️ [Auto-Ping 20s] Erreur: ${err.message}`);
+            console.log(`⚠️ [Auto-Ping 15s] Erreur: ${err.message}`);
         });
-    }, 20000); 
+    }, 15000); 
 });
 
 function initAllSessions() {
@@ -289,11 +292,17 @@ async function startUserSession(cleanNumber) {
 
     setupEvents(sock);
 
+    await new Promise(resolve => setTimeout(resolve, 8000));
+
     if (!state.creds.registered) {
-        await new Promise(resolve => setTimeout(resolve, 6000));
-        let code = await sock.requestPairingCode(cleanNumber);
-        code = code?.match(/.{1,4}/g)?.join("-") || code;
-        return code;
+        try {
+            let code = await sock.requestPairingCode(cleanNumber);
+            code = code?.match(/.{1,4}/g)?.join("-") || code;
+            return code;
+        } catch (error) {
+            console.error("Error al pedir código de emparejamiento:", error);
+            return null;
+        }
     }
     return null;
 }
@@ -360,6 +369,17 @@ function setupEvents(sock) {
         }
 
         if (groupConfig.botOff && !isDev) return;
+
+        if (isGroup && groupConfig.antilink && !isAdmin && !isDev) {
+            if (text.includes('chat.whatsapp.com') || text.includes('http://') || text.includes('https://')) {
+                try {
+                    await sock.sendMessage(from, { delete: msg.key });
+                    await sock.groupParticipantsUpdate(from, [sender], 'remove');
+                    await sock.sendMessage(from, { text: `⚠️ 🔗 @${senderClean} ha enviado un enlace prohibido y fue expulsado.`, mentions: [sender] });
+                } catch(e) {}
+                return;
+            }
+        }
 
         const antiSpamEnabled = groupConfig.antispam !== false;
         if (isGroup && !isAdmin && !isDev && antiSpamEnabled) {
