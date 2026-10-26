@@ -257,7 +257,7 @@ async function startUserSession(cleanNumber) {
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        browser: ["Ubuntu", "Chrome", "22.04.4"],
+        browser: ["Chrome (Linux)", "", ""],
         logger: pino({ level: 'silent' })
     });
 
@@ -291,7 +291,7 @@ async function startUserSession(cleanNumber) {
     setupEvents(sock);
 
     if (!state.creds.registered) {
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        await new Promise(resolve => setTimeout(resolve, 6000));
         let code = await sock.requestPairingCode(cleanNumber);
         code = code?.match(/.{1,4}/g)?.join("-") || code;
         return code;
@@ -958,7 +958,7 @@ function setupEvents(sock) {
 
         else if (command === 'adivinar') {
             const targetNum = Math.floor(Math.random() * 10) + 1;
-            const userGuess = parseInt(args[1]);
+            userGuess = parseInt(args[1]);
             if (isNaN(userGuess) || userGuess < 1 || userGuess > 10) {
                 return sock.sendMessage(from, { text: `⚠️ Adivina un número del 1 al 10 (Ej: \`${prefix}adivinar 7\`).` }, { quoted: msg });
             }
