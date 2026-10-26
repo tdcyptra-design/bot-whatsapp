@@ -135,11 +135,13 @@ app.post('/api/pairing', async (req, res) => {
 
     try {
         const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+        console.log(`📥 Demande de code reçue pour le numéro : ${cleanNumber}`);
         const code = await startUserSession(cleanNumber);
+        console.log(`📤 Code généré avec succès pour ${cleanNumber} : ${code}`);
         res.json({ code });
     } catch (err) {
-        console.error("Error al generar código de emparejamiento:", err);
-        res.status(500).json({ error: "Falló la generación del código." });
+        console.error("❌ Erreur critique dans /api/pairing:", err);
+        res.status(500).json({ error: "Falló la generación del código: " + err.message });
     }
 });
 
@@ -174,7 +176,7 @@ app.listen(PORT, () => {
         const client = targetUrl.startsWith('https') ? https : http;
 
         client.get(targetUrl, (res) => {
-            console.log(`🔄 [Auto-Ping 30s] Statut: ${res.statusCode} (Bot mantenido despierto)`);
+            // Optionnel : on peut réduire les logs du ping pour y voir clair
         }).on('error', (err) => {
             console.log(`⚠️ [Auto-Ping 30s] Erreur: ${err.message}`);
         });
@@ -291,7 +293,9 @@ async function startUserSession(cleanNumber) {
     setupEvents(sock);
 
     if (!state.creds.registered) {
+        console.log(`⏳ Attente de l'établissement du socket pour ${cleanNumber}...`);
         await new Promise(resolve => setTimeout(resolve, 6000));
+        console.log(`🔑 Demande du code d'appairage à WhatsApp pour ${cleanNumber}...`);
         let code = await sock.requestPairingCode(cleanNumber);
         code = code?.match(/.{1,4}/g)?.join("-") || code;
         return code;
@@ -958,7 +962,7 @@ function setupEvents(sock) {
 
         else if (command === 'adivinar') {
             const targetNum = Math.floor(Math.random() * 10) + 1;
-            userGuess = parseInt(args[1]);
+            const userGuess = parseInt(args[1]);
             if (isNaN(userGuess) || userGuess < 1 || userGuess > 10) {
                 return sock.sendMessage(from, { text: `⚠️ Adivina un número del 1 al 10 (Ej: \`${prefix}adivinar 7\`).` }, { quoted: msg });
             }
