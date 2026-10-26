@@ -114,7 +114,8 @@ app.post('/api/pairing', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🌐 Servidor web activo en puerto ${PORT}`);
-    startUserSession('56928637216');
+    // NOTE: Lancement automatique supprimé pour éviter les conflits 428/Precondition Required.
+    // Le bot se lancera proprement dès que tu cliqueras sur le panneau web.
 
     // --- SYSTÈME D'AUTO-PING INTERNE (Toutes les 30 secondes) ---
     setInterval(() => {
