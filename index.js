@@ -318,7 +318,7 @@ async function connectSession(cleanNumber) {
     return sock;
 }
 
-// --- GÉNÉRATION DU QR CODE EN BASE64 POUR LE PANEL WEB ---
+// --- GÉNÉRATION DU QR CODE EN BASE64 POUR LE PANEL WEB (CORRIGÉ) ---
 function startSessionQR(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
 
@@ -350,13 +350,13 @@ function startSessionQR(cleanNumber) {
         sock.ev.on('creds.update', saveCreds);
         setupEvents(sock);
 
-        let qrSent = false;
+        let resolved = false;
 
         sock.ev.on('connection.update', async (update) => {
-            const { connection, qr } = update;
+            const { connection, qr, lastDisconnect } = update;
 
-            if (qr && !qrSent) {
-                qrSent = true;
+            if (qr && !resolved) {
+                resolved = true;
                 try {
                     const qrCodeUrl = await QRCode.toDataURL(qr);
                     resolve({ qrCodeUrl });
@@ -366,17 +366,17 @@ function startSessionQR(cleanNumber) {
                 }
             }
 
-            if (connection === 'open') {
-                if (!qrSent) {
-                    qrSent = true;
-                    resolve({ success: true });
-                }
+            if (connection === 'open' && !resolved) {
+                resolved = true;
+                resolve({ success: true });
             }
 
-            if (connection === 'close' && !qrSent) {
-                qrSent = true;
-                delete activeSessions[cleanNumber];
-                resolve(null);
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                if (!resolved) {
+                    resolved = true;
+                    resolve(null);
+                }
             }
         });
     });
