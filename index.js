@@ -35,7 +35,7 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
-// --- PANEL WEB MULTI-SESSION CON QR CODE (THÈME HALLOWEEN) ---
+// --- PANEL WEB MULTI-SESSION AVEC QR CODE (THÈMES HALLOWEEN) ---
 app.get('/', (req, res) => {
     const sessionDirs = fs.existsSync('./sessions') ? fs.readdirSync('./sessions') : [];
     const connectedNumbers = sessionDirs.map(dir => dir.replace('session_', ''));
@@ -45,7 +45,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TEAM DRONIX // Multi-Session Panel</title>
+    <title>TEAM DRONIX // Multi-Session QR Panel</title>
     <style>
         body { 
             background: linear-gradient(rgba(10, 5, 15, 0.9), rgba(5, 2, 8, 0.95)), url('https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
@@ -270,7 +270,7 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONEXIÓN / RECONEXIÓN NORMAL ---
+// --- CONNEXION NORMALE DES SESSIONS ---
 async function connectSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
     fs.mkdirSync(sessionDir, { recursive: true });
@@ -318,7 +318,7 @@ async function connectSession(cleanNumber) {
     return sock;
 }
 
-// --- GENERACIÓN DE QR EN BASE64 PARA LA WEB ---
+// --- GÉNÉRATION DU QR CODE EN BASE64 POUR LE PANEL WEB ---
 function startSessionQR(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
 
@@ -326,7 +326,6 @@ function startSessionQR(cleanNumber) {
         return Promise.resolve({ success: true });
     }
 
-    // Limpieza previa si existía un intento no registrado
     if (activeSessions[cleanNumber]) {
         try { activeSessions[cleanNumber].end(undefined); } catch (e) {}
         delete activeSessions[cleanNumber];
@@ -362,13 +361,12 @@ function startSessionQR(cleanNumber) {
                     const qrCodeUrl = await QRCode.toDataURL(qr);
                     resolve({ qrCodeUrl });
                 } catch (err) {
-                    console.error("Error al convertir QR a imagen:", err);
+                    console.error("Error al convertir QR:", err);
                     resolve(null);
                 }
             }
 
             if (connection === 'open') {
-                console.log(`🟢 Sesión emparejada exitosamente: ${cleanNumber}`);
                 if (!qrSent) {
                     qrSent = true;
                     resolve({ success: true });
