@@ -1,11 +1,10 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, delay } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const express = require('express');
 const pino = require('pino');
 const http = require('http');
 const https = require('https');
 const yts = require('yt-search');
-const QRCode = require('qrcode');
 
 const DATA_FILE = './data.json';
 const OWNER_NUMBERS = ['56928637216', '56928637216@s.whatsapp.net'];
@@ -17,7 +16,7 @@ const channelContext = {
         isForwarded: true,
         forwardedNewsletterMessageInfo: {
             newsletterJid: "0029VbAw5JxDjiOfYaxtEJ1B@newsletter",
-            newsletterName: "Suivre la chaîne TEAM DRONIX BOT sur WhatsApp",
+            newsletterName: "TEAM DRONIX BOT",
             serverMessageId: 1
         }
     }
@@ -35,17 +34,17 @@ app.get('/ping', (req, res) => {
     res.status(200).send('🏓 PONG! Bot activo.');
 });
 
-// --- PANEL WEB MULTI-SESSION AVEC QR CODE (THÈMES HALLOWEEN) ---
+// --- PANEL WEB MULTI-SESSION AVEC CODE D'APPARIEMENT (PAIRING CODE) ---
 app.get('/', (req, res) => {
     const sessionDirs = fs.existsSync('./sessions') ? fs.readdirSync('./sessions') : [];
-    const connectedNumbers = sessionDirs.map(dir => dir.replace('session_', ''));
+    const connectedNumbers = sessionDirs.filter(dir => dir.startsWith('session_')).map(dir => dir.replace('session_', ''));
 
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TEAM DRONIX // Multi-Session QR Panel</title>
+    <title>TEAM DRONIX // Pairing Code Panel</title>
     <style>
         body { 
             background: linear-gradient(rgba(10, 5, 15, 0.9), rgba(5, 2, 8, 0.95)), url('https://images.unsplash.com/photo-1508385082359-f38ae991e8f2?q=80&w=1920&auto=format&fit=crop') no-repeat center center fixed; 
@@ -80,8 +79,8 @@ app.get('/', (req, res) => {
         .sessions-list { margin-top: 20px; text-align: left; width: 100%; border-top: 1px solid #4a154b; padding-top: 15px; }
         .session-item { display: flex; justify-content: space-between; align-items: center; background: #08030f; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 14px; }
         .btn-del { background: #ff3366; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; width: auto; margin: 0; }
-        #qrContainer { margin-top: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        #qrImage { width: 220px; height: 220px; border: 3px solid #ff7518; border-radius: 12px; background: white; padding: 10px; display: none; }
+        #codeContainer { margin-top: 20px; display: none; flex-direction: column; align-items: center; justify-content: center; background: #08030f; padding: 15px; border-radius: 8px; border: 1px dashed #ff7518; }
+        #pairingCode { font-size: 28px; color: #00ffcc; font-weight: bold; letter-spacing: 3px; margin: 10px 0; }
         #statusText { color: #00ffcc; margin-top: 10px; font-weight: bold; }
     </style>
 </head>
@@ -89,15 +88,16 @@ app.get('/', (req, res) => {
     <div class="container">
         <div class="panel">
             <h1>🎃 TEAM DRONIX 🦇</h1>
-            <div class="subtitle">Multi-Session QR Panel</div>
+            <div class="subtitle">Pairing Code Panel</div>
             
-            <input type="text" id="phone" placeholder="Tu número (ej: 56912345678)">
-            <button onclick="requestQR()">Generar Código QR</button>
+            <input type="text" id="phone" placeholder="Tu número (ej: 56928637216)">
+            <button onclick="requestPairingCode()">Obtener Código de Vinculación</button>
             
-            <div id="qrContainer">
-                <p id="statusText"></p>
-                <img id="qrImage" alt="Escanea con tu WhatsApp" />
+            <div id="codeContainer">
+                <p style="font-size: 13px; color: #b388ff; margin:0;">Introduce este código en tu WhatsApp:</p>
+                <div id="pairingCode">--------</div>
             </div>
+            <p id="statusText"></p>
 
             <div class="sessions-list">
                 <h3 style="color: #b388ff; font-size: 14px; margin-bottom: 10px;">📱 Sesiones Registradas:</h3>
@@ -112,14 +112,15 @@ app.get('/', (req, res) => {
         </div>
     </div>
     <script>
-        async function requestQR() {
+        async function requestPairingCode() {
             const phone = document.getElementById('phone').value.trim();
             const statusText = document.getElementById('statusText');
-            const qrImage = document.getElementById('qrImage');
+            const codeContainer = document.getElementById('codeContainer');
+            const pairingCode = document.getElementById('pairingCode');
 
             if(!phone) { statusText.innerText = "❌ Ingrese un número"; return; }
-            statusText.innerText = "⏳ Generando Código QR...";
-            qrImage.style.display = 'none';
+            statusText.innerText = "⏳ Solicitando código de emparejamiento...";
+            codeContainer.style.display = 'none';
 
             try {
                 const res = await fetch('/api/pairing', {
@@ -128,22 +129,22 @@ app.get('/', (req, res) => {
                     body: JSON.stringify({ phoneNumber: phone })
                 });
                 const data = await res.json();
-                if(data.qrCodeUrl) { 
-                    statusText.innerText = "📷 ¡Escanea este QR con tu WhatsApp!";
-                    qrImage.src = data.qrCodeUrl;
-                    qrImage.style.display = 'block';
+                if(data.code) { 
+                    statusText.innerText = "✅ ¡Código generado con éxito!";
+                    pairingCode.innerText = data.code;
+                    codeContainer.style.display = 'flex';
                 } else if(data.success) {
-                    statusText.innerText = "🟢 ¡Esta sesión ya está conectada y activa!";
+                    statusText.innerText = "🟢 ¡Esta sesión ya está conectada!";
                 } else { 
-                    statusText.innerText = "❌ " + (data.error || "Error al generar QR"); 
+                    statusText.innerText = "❌ " + (data.error || "Error al generar código"); 
                 }
             } catch(e) { statusText.innerText = "❌ Error de conexión"; }
         }
 
         async function deleteSession(phone) {
-            if(!confirm("¿Seguro que deseas eliminar la sesión +" + phone + "?")) return;
+            if(!confirm("¿Deseas eliminar la sesión +" + phone + "?")) return;
             try {
-                const res = await fetch('/api/delete-session', {
+                await fetch('/api/delete-session', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ phoneNumber: phone })
@@ -162,18 +163,18 @@ app.post('/api/pairing', async (req, res) => {
 
     const cleanNumber = String(phoneNumber).replace(/[^0-9]/g, '');
     if (cleanNumber.length < 8 || cleanNumber.length > 15) {
-        return res.status(400).json({ error: "Número inválido. Usa formato internacional (ej: 56912345678)" });
+        return res.status(400).json({ error: "Número inválido. Usa formato internacional." });
     }
 
     try {
-        const result = await startSessionQR(cleanNumber);
+        const result = await startPairingSession(cleanNumber);
         if (!result) {
-            return res.status(500).json({ error: "No se pudo generar el QR, reintenta en unos segundos." });
+            return res.status(500).json({ error: "No se pudo generar el código, reintenta." });
         }
         res.json(result);
     } catch (err) {
-        console.error("Error al generar QR:", err);
-        res.status(500).json({ error: "Falló la generación del código QR." });
+        console.error("Error al generar pairing code:", err);
+        res.status(500).json({ error: "Falló la generación del código." });
     }
 });
 
@@ -270,7 +271,7 @@ function getPlayer(data, id) {
     return player;
 }
 
-// --- CONNEXION NORMALE DES SESSIONS ---
+// --- CONNEXION NORMALE ---
 async function connectSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
     fs.mkdirSync(sessionDir, { recursive: true });
@@ -284,7 +285,7 @@ async function connectSession(cleanNumber) {
         ...(version ? { version } : {}),
         auth: state,
         printQRInTerminal: false,
-        browser: ['Ubuntu', 'Chrome', '20.0.04'],
+        browser: ['Chrome (Linux)', '', ''],
         logger: pino({ level: 'silent' }),
         syncFullHistory: false,
         markOnlineOnConnect: false
@@ -296,21 +297,17 @@ async function connectSession(cleanNumber) {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
-
         if (connection === 'open') {
             console.log(`🟢 Sesión conectada: ${cleanNumber}`);
         }
-
         if (connection === 'close') {
             if (activeSessions[cleanNumber] !== sock) return;
-
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             if (statusCode === DisconnectReason.loggedOut) {
                 delete activeSessions[cleanNumber];
                 try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (e) {}
                 return;
             }
-
             setTimeout(() => connectSession(cleanNumber).catch(console.error), 5000);
         }
     });
@@ -318,8 +315,8 @@ async function connectSession(cleanNumber) {
     return sock;
 }
 
-// --- GÉNÉRATION DU QR CODE EN BASE64 POUR LE PANEL WEB (CORRIGÉ) ---
-function startSessionQR(cleanNumber) {
+// --- GÉNÉRATION DU CODE D'APPARIEMENT (PAIRING CODE) ---
+function startPairingSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
 
     if (activeSessions[cleanNumber] && activeSessions[cleanNumber].authState?.creds?.registered) {
@@ -342,7 +339,7 @@ function startSessionQR(cleanNumber) {
             ...(version ? { version } : {}),
             auth: state,
             printQRInTerminal: false,
-            browser: ['Ubuntu', 'Chrome', '20.0.04'],
+            browser: ['Chrome (Linux)', '', ''],
             logger: pino({ level: 'silent' })
         });
 
@@ -350,32 +347,36 @@ function startSessionQR(cleanNumber) {
         sock.ev.on('creds.update', saveCreds);
         setupEvents(sock);
 
-        let resolved = false;
+        let codeResolved = false;
 
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, qr, lastDisconnect } = update;
-
-            if (qr && !resolved) {
-                resolved = true;
-                try {
-                    const qrCodeUrl = await QRCode.toDataURL(qr);
-                    resolve({ qrCodeUrl });
-                } catch (err) {
-                    console.error("Error al convertir QR:", err);
+        if (!sock.authState.creds.registered) {
+            await delay(4000);
+            try {
+                const code = await sock.requestPairingCode(cleanNumber);
+                if (!codeResolved) {
+                    codeResolved = true;
+                    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                    console.log(`\n=========================================`);
+                    console.log(`📱 CODE D'APPARIEMENT POUR +${cleanNumber} : ${formattedCode}`);
+                    console.log(`=========================================\n`);
+                    resolve({ code: formattedCode });
+                }
+            } catch (err) {
+                console.error("Error pidiendo pairing code:", err);
+                if (!codeResolved) {
+                    codeResolved = true;
                     resolve(null);
                 }
             }
+        }
 
-            if (connection === 'open' && !resolved) {
-                resolved = true;
-                resolve({ success: true });
-            }
-
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                if (!resolved) {
-                    resolved = true;
-                    resolve(null);
+        sock.ev.on('connection.update', (update) => {
+            const { connection } = update;
+            if (connection === 'open') {
+                console.log(`🟢 ¡Sesión conectada con éxito para +${cleanNumber}!`);
+                if (!codeResolved) {
+                    codeResolved = true;
+                    resolve({ success: true });
                 }
             }
         });
@@ -517,7 +518,7 @@ function setupEvents(sock) {
             }
             player.activePoke = index;
             saveData(data);
-            await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, mentions: [sender], ...channelContext });
+            await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, ...channelContext });
         }
 
         // ==========================================
@@ -895,39 +896,50 @@ function setupEvents(sock) {
         }
 
         else if (command === 'menu' || command === 'help' || command === 'allmenu') {
-            let menuText = `🤖 *SUBBOTS & MULTI-SESSION*\n` +
-                `• \`${prefix}code\`\n\n` +
-                
+            let menuText = `WABOT · MENÚ\t\tAkirax ↗\n\n` +
+                `🤖 *SUBBOTS* (Vinculacion y ajustes)\n` +
+                `CONEXIÓN\n` +
+                `\`${prefix}code\`  \`${prefix}bots\`\n` +
+                `\`${prefix}bot\`   \`${prefix}public\`\n\n` +
+                `AJUSTES\n` +
+                `\`${prefix}setprefix\`  \`${prefix}setname\`\n` +
+                `\`${prefix}setprimary\` \`${prefix}enable\`\n` +
+                `\`${prefix}disable\`\n\n` +
+
                 `📦 *GRUPO & MODERACIÓN*\n` +
-                `• \`${prefix}tag [msg]\` - Etiquetar a todos\n` +
-                `• \`${prefix}kick @user\` - Expulsar\n` +
-                `• \`${prefix}listaafk\` - Ver inactivos\n` +
-                `• \`${prefix}kickafk\` - Sacar inactivos\n` +
-                `• \`${prefix}setafk <num>\` - Configurar umbral AFK\n` +
-                `• \`${prefix}bienvenida <on/off/txt>\` - Bienvenida\n` +
-                `• \`${prefix}antispam <on/off/num>\` - Anti-spam\n` +
-                `• \`${prefix}antilink <on/off>\` - Antilink\n\n` +
+                `\`${prefix}tag [msg]\` - Etiquetar a todos\n` +
+                `\`${prefix}kick @user\` - Expulsar usuario\n` +
+                `\`${prefix}listaafk\` - Ver inactivos\n` +
+                `\`${prefix}kickafk\` - Sacar inactivos\n` +
+                `\`${prefix}setafk <num>\` - Umbral AFK\n` +
+                `\`${prefix}bienvenida\` - Mensaje de bienvenida\n` +
+                `\`${prefix}antispam\` - Control de spam\n` +
+                `\`${prefix}antilink\` - Filtro de enlaces\n\n` +
 
                 `🌿 *POKÉMON & COMBATES*\n` +
-                `• \`${prefix}pstart <poke>\` - Inicial\n` +
-                `• \`${prefix}equipo\` - Tu equipo\n` +
-                `• \`${prefix}pcombatir @user\` - Batalla\n\n` +
+                `\`${prefix}pstart <poke>\` - Inicial\n` +
+                `\`${prefix}equipo\` - Tu equipo\n` +
+                `\`${prefix}pcombatir @user\` - Batalla\n` +
+                `\`${prefix}pm <1-4>\` - Movimientos\n\n` +
 
                 `🎮 *JUEGOS & ARCADE*\n` +
-                `• \`${prefix}ruleta <apuesta>\`\n` +
-                `• \`${prefix}crime\`\n` +
-                `• \`${prefix}robar @user\`\n` +
-                `• \`${prefix}work\`\n` +
-                `• \`${prefix}bal\`\n\n` +
+                `\`${prefix}ruleta <apuesta>\`\n` +
+                `\`${prefix}crime\`  \`${prefix}robar @user\`\n` +
+                `\`${prefix}work\`   \`${prefix}bal\`\n\n` +
 
                 `🃏 *GACHA & COLECCIÓN*\n` +
-                `• \`${prefix}roll\`\n` +
-                `• \`${prefix}harem\`\n\n` +
+                `\`${prefix}roll\`  \`${prefix}harem\`\n\n` +
 
                 `📥 *MULTIMEDIA*\n` +
-                `• \`${prefix}youtube <busqueda>\``;
+                `\`${prefix}youtube <busqueda>\`\n\n` +
+                `🟢 ··········· 1 / 11 · 35 CMD\n` +
+                `©${BOT_NAME}`;
 
-            await sock.sendMessage(from, { image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop' }, caption: menuText, ...channelContext });
+            await sock.sendMessage(from, { 
+                image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop' }, 
+                caption: menuText, 
+                ...channelContext 
+            });
         }
 
         else if (command === 'ping') {
