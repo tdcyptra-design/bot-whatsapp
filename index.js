@@ -119,7 +119,7 @@ app.get('/', (req, res) => {
             const pairingCode = document.getElementById('pairingCode');
 
             if(!phone) { statusText.innerText = "❌ Ingrese un número"; return; }
-            statusText.innerText = "⏳ Solicitando código de emparejamiento...";
+            statusText.innerText = "⏳ Limpiando y solicitando nuevo código...";
             codeContainer.style.display = 'none';
 
             try {
@@ -319,12 +319,16 @@ async function connectSession(cleanNumber) {
     return sock;
 }
 
-// --- GÉNÉRATION DU CODE D'APPARIEMENT SYNCHRONISÉ ---
+// --- GÉNÉRATION DU CODE D'APPARIEMENT SYNCHRONISÉ AVEC NETTOYAGE AUTO ---
 function startPairingSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
 
-    if (activeSessions[cleanNumber] && activeSessions[cleanNumber].authState?.creds?.registered) {
-        return Promise.resolve({ success: true });
+    // 🔥 NETTOYAGE AUTOMATIQUE : Supprime l'ancien dossier pour éviter l'erreur "incorrect" de WhatsApp
+    if (fs.existsSync(sessionDir)) {
+        try {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+            console.log(`🗑️ Ancienne session nettoyée pour +${cleanNumber}`);
+        } catch (e) {}
     }
 
     if (activeSessions[cleanNumber]) {
