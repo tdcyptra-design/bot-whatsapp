@@ -119,7 +119,7 @@ app.get('/', (req, res) => {
             const pairingCode = document.getElementById('pairingCode');
 
             if(!phone) { statusText.innerText = "❌ Ingrese un número"; return; }
-            statusText.innerText = "⏳ Limpiando y solicitando nuevo código...";
+            statusText.innerText = "⏳ Conectando con WhatsApp (Espera unos 20 segundos)...";
             codeContainer.style.display = 'none';
 
             try {
@@ -289,7 +289,7 @@ async function connectSession(cleanNumber) {
         ...(version ? { version } : {}),
         auth: state,
         printQRInTerminal: false,
-        browser: ['Chrome (Linux)', '', ''],
+        browser: ['Desktop', 'Chrome', '120.0.0.0'],
         logger: pino({ level: 'silent' }),
         syncFullHistory: false,
         markOnlineOnConnect: false
@@ -319,11 +319,10 @@ async function connectSession(cleanNumber) {
     return sock;
 }
 
-// --- GÉNÉRATION DU CODE D'APPARIEMENT SYNCHRONISÉ AVEC NETTOYAGE AUTO ---
+// --- GÉNÉRATION DU CODE D'APPARIEMENT AVEC 20 SECONDES DE SÉCURITÉ ---
 function startPairingSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
 
-    // 🔥 NETTOYAGE AUTOMATIQUE : Supprime l'ancien dossier pour éviter l'erreur "incorrect" de WhatsApp
     if (fs.existsSync(sessionDir)) {
         try {
             fs.rmSync(sessionDir, { recursive: true, force: true });
@@ -347,7 +346,7 @@ function startPairingSession(cleanNumber) {
             ...(version ? { version } : {}),
             auth: state,
             printQRInTerminal: false,
-            browser: ['Chrome (Linux)', '', ''],
+            browser: ['Desktop', 'Chrome', '120.0.0.0'],
             logger: pino({ level: 'silent' })
         });
 
@@ -369,6 +368,7 @@ function startPairingSession(cleanNumber) {
         });
 
         if (!sock.authState.creds.registered) {
+            // ⏳ Délai de sécurité de 20 secondes pour laisser le WebSocket s'établir parfaitement sur Render
             setTimeout(async () => {
                 try {
                     if (codeResolved) return;
@@ -388,7 +388,7 @@ function startPairingSession(cleanNumber) {
                         resolve(null);
                     }
                 }
-            }, 6000);
+            }, 20000);
         }
     });
 }
