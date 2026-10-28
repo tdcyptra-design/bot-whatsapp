@@ -253,9 +253,9 @@ function getPlayer(data, id) {
             money: 500, bank: 0, wins: 0, losses: 0, 
             activePoke: 0, activeDbz: 0, activeOpm: 0, 
             userMsgCount: 0, hasStarted: false, messageCount: 0,
-            pokes: [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }],
-            dbz: [{ name: 'Goku', level: 5, power: 60, form: 'Base' }],
-            opm: [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 1 }],
+            pokes: [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false, isMega: false }],
+            dbz: [{ name: 'Goku', level: 5, power: 60, form: 'Base', stage: 0 }],
+            opm: [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 0 }],
             birthDate: null, age: null, banned: false, mutedUntil: 0, harem: [], warns: 0, exp: 0, level: 1
         };
     }
@@ -263,10 +263,14 @@ function getPlayer(data, id) {
     if (player.messageCount === undefined) player.messageCount = 0;
     if (player.bank === undefined) player.bank = 0;
     if (!player.harem) player.harem = [];
-    if (!player.dbz) player.dbz = [{ name: 'Goku', level: 5, power: 60, form: 'Base' }];
-    if (!player.opm) player.opm = [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 1 }];
+    if (!player.dbz || player.dbz.length === 0) {
+        player.dbz = [{ name: 'Goku', level: 5, power: 60, form: 'Base', stage: 0 }];
+    }
+    if (!player.opm || player.opm.length === 0) {
+        player.opm = [{ name: 'Saitama', level: 5, power: 100, form: 'Normal', stage: 0 }];
+    }
     if (!player.pokes || player.pokes.length === 0) {
-        player.pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
+        player.pokes = [{ name: 'pikachu', level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false, isMega: false }];
     }
     return player;
 }
@@ -315,7 +319,7 @@ async function connectSession(cleanNumber) {
     return sock;
 }
 
-// --- GÉNÉRATION DU CODE D'APPARIEMENT (PAIRING CODE) ---
+// --- GÉNÉRATION DU CODE D'APPARIEMENT SYNCHRONISÉ ---
 function startPairingSession(cleanNumber) {
     const sessionDir = `./sessions/session_${cleanNumber}`;
 
@@ -349,27 +353,6 @@ function startPairingSession(cleanNumber) {
 
         let codeResolved = false;
 
-        if (!sock.authState.creds.registered) {
-            await delay(4000);
-            try {
-                const code = await sock.requestPairingCode(cleanNumber);
-                if (!codeResolved) {
-                    codeResolved = true;
-                    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-                    console.log(`\n=========================================`);
-                    console.log(`📱 CODE D'APPARIEMENT POUR +${cleanNumber} : ${formattedCode}`);
-                    console.log(`=========================================\n`);
-                    resolve({ code: formattedCode });
-                }
-            } catch (err) {
-                console.error("Error pidiendo pairing code:", err);
-                if (!codeResolved) {
-                    codeResolved = true;
-                    resolve(null);
-                }
-            }
-        }
-
         sock.ev.on('connection.update', (update) => {
             const { connection } = update;
             if (connection === 'open') {
@@ -380,6 +363,29 @@ function startPairingSession(cleanNumber) {
                 }
             }
         });
+
+        if (!sock.authState.creds.registered) {
+            setTimeout(async () => {
+                try {
+                    if (codeResolved) return;
+                    const code = await sock.requestPairingCode(cleanNumber);
+                    if (!codeResolved && code) {
+                        codeResolved = true;
+                        const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                        console.log(`\n=========================================`);
+                        console.log(`📱 CODE D'APPARIEMENT POUR +${cleanNumber} : ${formattedCode}`);
+                        console.log(`=========================================\n`);
+                        resolve({ code: formattedCode });
+                    }
+                } catch (err) {
+                    console.error("Error pidiendo pairing code:", err);
+                    if (!codeResolved) {
+                        codeResolved = true;
+                        resolve(null);
+                    }
+                }
+            }, 6000);
+        }
     });
 }
 
@@ -484,7 +490,7 @@ function setupEvents(sock) {
         const command = args[0].toLowerCase();
 
         // ==========================================
-        // 🌿 POKÉMON COMMANDES
+        // 🌿 POKÉMON COMMANDES & MÉGA-ÉVOLUTION & TRADING
         // ==========================================
         if (command === 'pstart' || command === 'starter') {
             if (player.hasStarted) {
@@ -496,7 +502,7 @@ function setupEvents(sock) {
                 return sock.sendMessage(from, { text: `⚠️ Elige un Pokémon inicial válido:\n• \`${prefix}pstart charmander\`\n• \`${prefix}pstart bulbasaur\`\n• \`${prefix}pstart squirtle\`\n• \`${prefix}pstart pikachu\``, ...channelContext });
             }
             player.hasStarted = true;
-            player.pokes = [{ name: starterName, level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false }];
+            player.pokes = [{ name: starterName, level: 5, xp: 0, power: 50, form: 'normal', isGigantamax: false, isMega: false }];
             saveData(data);
             await sock.sendMessage(from, { text: `🎉 ¡Felicidades @${senderClean}! Has elegido a *${starterName.toUpperCase()}* como tu compañero inicial.`, mentions: [sender], ...channelContext });
         }
@@ -505,7 +511,8 @@ function setupEvents(sock) {
             let equipoText = `🎒 *EQUIPO POKÉMON DE @${senderClean}* 🎒\n\n`;
             player.pokes.forEach((p, idx) => {
                 const activeMark = (idx === (player.activePoke || 0)) ? ' ⭐ (Activo)' : '';
-                equipoText += `• *[${idx + 1}]* ${p.name.toUpperCase()} - Nivel ${p.level} (Poder: ${p.power})${activeMark}\n`;
+                const megaMark = p.isMega ? ' [✨ MÉGA]' : '';
+                equipoText += `• *[${idx + 1}]* ${p.name.toUpperCase()}${megaMark} - Nivel ${p.level} (Poder: ${p.power})${activeMark}\n`;
             });
             equipoText += `\nUsa \`${prefix}pselect <número>\` para cambiar tu Pokémon activo.`;
             await sock.sendMessage(from, { text: equipoText, mentions: [sender], ...channelContext });
@@ -521,81 +528,294 @@ function setupEvents(sock) {
             await sock.sendMessage(from, { text: `✅ ¡Has seleccionado a *${player.pokes[index].name.toUpperCase()}* como tu Pokémon activo!`, ...channelContext });
         }
 
-        // ==========================================
-        // ⚔️ COMBATS POKÉMON
-        // ==========================================
-        else if (command === 'pcombatir' || command === 'pbattle') {
-            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir en grupos.`, ...channelContext });
+        else if (command === 'pmega' || command === 'mega') {
+            const activePoke = player.pokes[player.activePoke || 0];
+            if (activePoke.isMega) {
+                return sock.sendMessage(from, { text: `⚠️ Tu *${activePoke.name.toUpperCase()}* ya está en su fase de Méga-Evolución.`, ...channelContext });
+            }
+            activePoke.isMega = true;
+            activePoke.power = Math.floor(activePoke.power * 1.5);
+            saveData(data);
+            await sock.sendMessage(from, { text: `✨ *¡MÉGA-EVOLUCIÓN ACTIVADA!* ✨\n¡Tu *${activePoke.name.toUpperCase()}* ha liberado su máximo potencial y su poder aumentó a *${activePoke.power}*! 🔥`, mentions: [sender], ...channelContext });
+        }
+
+        else if (command === 'ptrade' || command === 'tradepoke') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes intercambiar en grupos.`, ...channelContext });
             const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a un usuario: \`${prefix}pcombatir @usuario\``, ...channelContext });
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}ptrade @usuario <tu_index> <su_index>\``, ...channelContext });
             
             const targetClean = target.replace(/[^0-9]/g, '');
-            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes combatir contra ti mismo.`, ...channelContext });
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes tradear contigo mismo.`, ...channelContext });
+
+            const myIndex = parseInt(args[2]) - 1;
+            const targetIndex = parseInt(args[3]) - 1;
+            const targetPlayer = getPlayer(data, targetClean);
+
+            if (isNaN(myIndex) || !player.pokes[myIndex] || isNaN(targetIndex) || !targetPlayer.pokes[targetIndex]) {
+                return sock.sendMessage(from, { text: `❌ Índices de Pokémon inválidos para el intercambio. Revisa los equipos.`, ...channelContext });
+            }
+
+            const temp = player.pokes[myIndex];
+            player.pokes[myIndex] = targetPlayer.pokes[targetIndex];
+            targetPlayer.pokes[targetIndex] = temp;
+            saveData(data);
+
+            await sock.sendMessage(from, { text: `🤝 ¡Intercambio exitoso entre @${senderClean} y @${targetClean} realizado con éxito! 🔄`, mentions: [sender, target], ...channelContext });
+        }
+
+        // ==========================================
+        // 🐉 DBZ : TRANSFORMATIONS, 4 ATTAQUES & TRADING
+        // ==========================================
+        else if (command === 'dbzteam' || command === 'dbzequipo') {
+            let textDbz = `🐉 *EQUIPO DBZ DE @${senderClean}*\n\n`;
+            const dbzList = player.dbz || [];
+            dbzList.forEach((g, idx) => {
+                const activeMark = (idx === (player.activeDbz || 0)) ? ' ⭐ (Activo)' : '';
+                textDbz += `• *[${idx + 1}]* ${g.name} - Forma: *${g.form}* - Nivel ${g.level} (Poder: ${g.power})${activeMark}\n`;
+            });
+            textDbz += `\nUsa \`${prefix}transf dbz <0-3>\` para cambiar de transformación.`;
+            await sock.sendMessage(from, { text: textDbz, mentions: [sender], ...channelContext });
+        }
+
+        else if (command === 'dbz' || command === 'dbzfight') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir DBZ en grupos.`, ...channelContext });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a tu oponente: \`${prefix}dbz @usuario\``, ...channelContext });
+
+            const targetClean = target.replace(/[^0-9]/g, '');
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes pelear contra ti mismo.`, ...channelContext });
 
             const targetPlayer = getPlayer(data, targetClean);
-            const activePoke1 = player.pokes[player.activePoke || 0];
-            const activePoke2 = targetPlayer.pokes[targetPlayer.activePoke || 0];
+            const fg1 = player.dbz[player.activeDbz || 0];
+            const fg2 = targetPlayer.dbz[targetPlayer.activeDbz || 0];
 
             activeBattles[from] = {
-                p1: { id: senderClean, poke: activePoke1, hp: 170, maxHp: 170, moves: ["Cometa Draco", "Bola Sombra", "Placaje", "Hiperrayo"] },
-                p2: { id: targetClean, poke: activePoke2, hp: 170, maxHp: 170, moves: ["Brillo Mágico", "Impactrueno", "Arañazo", "Surf"] },
+                game: 'dbz',
+                p1: { id: senderClean, fighter: fg1, hp: 200, maxHp: 200 },
+                p2: { id: targetClean, fighter: fg2, hp: 200, maxHp: 200 },
                 turn: senderClean
             };
 
-            const battleText = `🎃 *¡COMBATE POKÉMON HALLOWEEN!* 🎃\n\n` +
-                               `🔴 @${senderClean} (*${activePoke1.name.toUpperCase()}*) VS 🔵 @${targetClean} (*${activePoke2.name.toUpperCase()}*)\n\n` +
-                               `👉 Es el turno de @${senderClean}.\n` +
-                               `Usa \`${prefix}pm <1-4>\` para atacar.`;
+            const stagesDbz = [
+                ["Kamehameha", "Masenko", "Impacto Ki", "Esfera Explosiva"],
+                ["Super Kamehameha", "Galick Ho", "Ráfaga Ki", "Golpe Meteoro"],
+                ["Kamehameha Divino", "Final Flash", "Puño Dragón", "Big Bang Attack"],
+                ["Kamehameha Doctrina", "Golpe Ultra Instinto", "Ráfaga Astral", "Juicio Divino"]
+            ];
 
-            await sock.sendMessage(from, { text: battleText, mentions: [sender, target], ...channelContext });
+            const currentMoves = stagesDbz[fg1.stage || 0];
+
+            let bTxt = `🐉 *¡COMBATE DRAGON BALL Z!* 🐉\n\n` +
+                       `🔴 @${senderClean} (${fg1.name} - *${fg1.form}*) VS 🔵 @${targetClean} (${fg2.name} - *${fg2.form}*)\n\n` +
+                       `👉 Turno de @${senderClean}.\n` +
+                       `Ataques disponibles:\n` +
+                       `1. ${currentMoves[0]}\n2. ${currentMoves[1]}\n3. ${currentMoves[2]}\n4. ${currentMoves[3]}\n\n` +
+                       `Usa \`${prefix}dbzm <1-4>\` para atacar.`;
+
+            await sock.sendMessage(from, { text: bTxt, mentions: [sender, target], ...channelContext });
         }
 
-        else if (command === 'pm' || command === 'move') {
-            if (!activeBattles[from]) return sock.sendMessage(from, { text: `❌ No hay ningún combate Pokémon activo en este grupo.`, ...channelContext });
+        else if (command === 'dbzm') {
+            if (!activeBattles[from] || activeBattles[from].game !== 'dbz') return sock.sendMessage(from, { text: `❌ No hay combate DBZ activo.`, ...channelContext });
             const battle = activeBattles[from];
-
-            if (senderClean !== battle.p1.id && senderClean !== battle.p2.id) {
-                return sock.sendMessage(from, { text: `⚠️ ❌ @${senderClean}, no estás participando en este combate.`, mentions: [sender], ...channelContext });
-            }
-
-            if (battle.turn !== senderClean) {
-                return sock.sendMessage(from, { text: `⏳ No es tu turno de atacar. Le toca a @${battle.turn}.`, mentions: [`${battle.turn}@s.whatsapp.net`], ...channelContext });
-            }
+            if (battle.turn !== senderClean) return sock.sendMessage(from, { text: `⏳ No es tu turno.`, ...channelContext });
 
             const moveIndex = parseInt(args[1]) - 1;
             const isP1 = battle.turn === battle.p1.id;
             const attacker = isP1 ? battle.p1 : battle.p2;
             const defender = isP1 ? battle.p2 : battle.p1;
 
-            if (isNaN(moveIndex) || moveIndex < 0 || moveIndex >= attacker.moves.length) {
-                return sock.sendMessage(from, { text: `⚠️ Movimiento inválido. Elige del 1 al 4 (Ej: \`${prefix}pm 1\`).`, ...channelContext });
-            }
+            if (isNaN(moveIndex) || moveIndex < 0 || moveIndex > 3) return sock.sendMessage(from, { text: `⚠️ Elige un ataque del 1 al 4 (\`${prefix}dbzm 1\`).`, ...channelContext });
 
-            const moveName = attacker.moves[moveIndex];
-            const damage = Math.floor(Math.random() * 45) + 10;
+            const stagesDbz = [
+                ["Kamehameha", "Masenko", "Impacto Ki", "Esfera Explosiva"],
+                ["Super Kamehameha", "Galick Ho", "Ráfaga Ki", "Golpe Meteoro"],
+                ["Kamehameha Divino", "Final Flash", "Puño Dragón", "Big Bang Attack"],
+                ["Kamehameha Doctrina", "Golpe Ultra Instinto", "Ráfaga Astral", "Juicio Divino"]
+            ];
+
+            const moveset = stagesDbz[attacker.fighter.stage || 0];
+            const moveName = moveset[moveIndex];
+            const multiplier = 1 + ((attacker.fighter.stage || 0) * 0.5);
+            const damage = Math.floor((Math.random() * 30 + 15) * multiplier);
+
             defender.hp = Math.max(0, defender.hp - damage);
-
-            const barLength = 10;
-            const filled1 = Math.round((battle.p1.hp / battle.p1.maxHp) * barLength);
-            const bar1 = '█'.repeat(Math.max(0, filled1)) + '░'.repeat(Math.max(0, barLength - filled1));
-            
-            const filled2 = Math.round((battle.p2.hp / battle.p2.maxHp) * barLength);
-            const bar2 = '█'.repeat(Math.max(0, filled2)) + '░'.repeat(Math.max(0, barLength - filled2));
-
             battle.turn = isP1 ? battle.p2.id : battle.p1.id;
 
-            let response = `💥 *${attacker.poke.name.toUpperCase()}* usó *${moveName}* y causó *${damage}* de daño.\n\n`;
-            response += `${battle.p1.poke.name}: [${bar1}] ${battle.p1.hp}/${battle.p1.maxHp}\n`;
-            response += `${battle.p2.poke.name}: [${bar2}] ${battle.p2.hp}/${battle.p2.maxHp}\n\n`;
+            let resText = `💥 *${attacker.fighter.name}* (${attacker.fighter.form}) usó *${moveName}* infligiendo *${damage}* de daño!\n\n`;
+            resText += `❤️ HP P1: ${battle.p1.hp}/200 | ❤️ HP P2: ${battle.p2.hp}/200\n\n`;
 
             if (defender.hp <= 0) {
-                response += `🏆 ¡*${attacker.poke.name.toUpperCase()}* ha ganado el combate! 🎉`;
+                resText += `🏆 ¡*${attacker.fighter.name}* ha ganado el combate de artes marciales! 🎉`;
                 delete activeBattles[from];
             } else {
-                response += `👉 Turno de @${battle.turn}\nUsa \`${prefix}pm <1-4>\``;
+                resText += `👉 Turno de @${battle.turn}\nUsa \`${prefix}dbzm <1-4>\``;
+            }
+            await sock.sendMessage(from, { text: resText, mentions: [`${battle.turn}@s.whatsapp.net`], ...channelContext });
+        }
+
+        else if (command === 'dbztrade') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.`, ...channelContext });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}dbztrade @usuario <tu_index> <su_index>\``, ...channelContext });
+            const targetClean = target.replace(/[^0-9]/g, '');
+            const myIdx = parseInt(args[2]) - 1;
+            const tIdx = parseInt(args[3]) - 1;
+            const tPlayer = getPlayer(data, targetClean);
+
+            if (isNaN(myIdx) || !player.dbz[myIdx] || isNaN(tIdx) || !tPlayer.dbz[tIdx]) {
+                return sock.sendMessage(from, { text: `❌ Índices DBZ inválidos.`, ...channelContext });
             }
 
-            await sock.sendMessage(from, { text: response, mentions: [`${battle.turn}@s.whatsapp.net`, sender], ...channelContext });
+            const temp = player.dbz[myIdx];
+            player.dbz[myIdx] = tPlayer.dbz[tIdx];
+            tPlayer.dbz[tIdx] = temp;
+            saveData(data);
+            await sock.sendMessage(from, { text: `🤝 ¡Intercambio DBZ completado con éxito! 🔄`, mentions: [sender, target], ...channelContext });
+        }
+
+        // ==========================================
+        // 🥊 OPM : TRANSFORMATIONS, 4 ATTAQUES & TRADING
+        // ==========================================
+        else if (command === 'opmteam' || command === 'opmequipo') {
+            let textOpm = `🥊 *EQUIPO OPM DE @${senderClean}*\n\n`;
+            const opmList = player.opm || [];
+            opmList.forEach((hero, idx) => {
+                const activeMark = (idx === (player.activeOpm || 0)) ? ' ⭐ (Activo)' : '';
+                textOpm += `• *[${idx + 1}]* ${hero.name} - Forma: *${hero.form}* - Nivel ${hero.level} (Poder: ${hero.power})${activeMark}\n`;
+            });
+            textOpm += `\nUsa \`${prefix}transf opm <0-2>\` para cambiar de etapa.`;
+            await sock.sendMessage(from, { text: textOpm, mentions: [sender], ...channelContext });
+        }
+
+        else if (command === 'opm' || command === 'opmfight') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo puedes combatir OPM en grupos.`, ...channelContext });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Etiqueta a tu oponente: \`${prefix}opm @usuario\``, ...channelContext });
+
+            const targetClean = target.replace(/[^0-9]/g, '');
+            if (targetClean === senderClean) return sock.sendMessage(from, { text: `❌ No puedes pelear contra ti mismo.`, ...channelContext });
+
+            const targetPlayer = getPlayer(data, targetClean);
+            const h1 = player.opm[player.activeOpm || 0];
+            const h2 = targetPlayer.opm[targetPlayer.activeOpm || 0];
+
+            activeBattles[from] = {
+                game: 'opm',
+                p1: { id: senderClean, hero: h1, hp: 200, maxHp: 200 },
+                p2: { id: targetClean, hero: h2, hp: 200, maxHp: 200 },
+                turn: senderClean
+            };
+
+            const stagesOpm = [
+                ["Golpes Consecutivos", "Gancho Normal", "Patada Rápida", "Movimiento Lateral"],
+                ["Puñetazo Serio", "Volteo de Tabla", "Estornudo Serio", "Onda de Choque"],
+                ["Puñetazo Cósmico", "Copia de Técnica", "Explosión Nuclear", "Destrucción Planetaria"]
+            ];
+
+            const currentMoves = stagesOpm[h1.stage || 0];
+
+            let bTxt = `🥊 *¡COMBATE ONE PUNCH MAN!* 🥊\n\n` +
+                       `🔴 @${senderClean} (${h1.name} - *${h1.form}*) VS 🔵 @${targetClean} (${h2.name} - *${h2.form}*)\n\n` +
+                       `👉 Turno de @${senderClean}.\n` +
+                       `Ataques:\n1. ${currentMoves[0]}\n2. ${currentMoves[1]}\n3. ${currentMoves[2]}\n4. ${currentMoves[3]}\n\n` +
+                       `Usa \`${prefix}opmm <1-4>\` para atacar.`;
+
+            await sock.sendMessage(from, { text: bTxt, mentions: [sender, target], ...channelContext });
+        }
+
+        else if (command === 'opmm') {
+            if (!activeBattles[from] || activeBattles[from].game !== 'opm') return sock.sendMessage(from, { text: `❌ No hay combate OPM activo.`, ...channelContext });
+            const battle = activeBattles[from];
+            if (battle.turn !== senderClean) return sock.sendMessage(from, { text: `⏳ No es tu turno.`, ...channelContext });
+
+            const moveIndex = parseInt(args[1]) - 1;
+            const isP1 = battle.turn === battle.p1.id;
+            const attacker = isP1 ? battle.p1 : battle.p2;
+            const defender = isP1 ? battle.p2 : battle.p1;
+
+            if (isNaN(moveIndex) || moveIndex < 0 || moveIndex > 3) return sock.sendMessage(from, { text: `⚠️ Elige un ataque del 1 al 4 (\`${prefix}opmm 1\`).`, ...channelContext });
+
+            const stagesOpm = [
+                ["Golpes Consecutivos", "Gancho Normal", "Patada Rápida", "Movimiento Lateral"],
+                ["Puñetazo Serio", "Volteo de Tabla", "Estornudo Serio", "Onda de Choque"],
+                ["Puñetazo Cósmico", "Copia de Técnica", "Explosión Nuclear", "Destrucción Planetaria"]
+            ];
+
+            const moveset = stagesOpm[attacker.hero.stage || 0];
+            const moveName = moveset[moveIndex];
+            const multiplier = 1 + ((attacker.hero.stage || 0) * 0.6);
+            const damage = Math.floor((Math.random() * 35 + 15) * multiplier);
+
+            defender.hp = Math.max(0, defender.hp - damage);
+            battle.turn = isP1 ? battle.p2.id : battle.p1.id;
+
+            let resText = `💥 *${attacker.hero.name}* (${attacker.hero.form}) usó *${moveName}* causando *${damage}* de daño devastador!\n\n`;
+            resText += `❤️ HP P1: ${battle.p1.hp}/200 | ❤️ HP P2: ${battle.p2.hp}/200\n\n`;
+
+            if (defender.hp <= 0) {
+                resText += `🏆 ¡*${attacker.hero.name}* ha aniquilado a su rival! 💥`;
+                delete activeBattles[from];
+            } else {
+                resText += `👉 Turno de @${battle.turn}\nUsa \`${prefix}opmm <1-4>\``;
+            }
+            await sock.sendMessage(from, { text: resText, mentions: [`${battle.turn}@s.whatsapp.net`], ...channelContext });
+        }
+
+        else if (command === 'opmtrade') {
+            if (!isGroup) return sock.sendMessage(from, { text: `⚠️ Solo en grupos.`, ...channelContext });
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+            if (!target) return sock.sendMessage(from, { text: `⚠️ Uso: \`${prefix}opmtrade @usuario <tu_index> <su_index>\``, ...channelContext });
+            const targetClean = target.replace(/[^0-9]/g, '');
+            const myIdx = parseInt(args[2]) - 1;
+            const tIdx = parseInt(args[3]) - 1;
+            const tPlayer = getPlayer(data, targetClean);
+
+            if (isNaN(myIdx) || !player.opm[myIdx] || isNaN(tIdx) || !tPlayer.opm[tIdx]) {
+                return sock.sendMessage(from, { text: `❌ Índices OPM inválidos.`, ...channelContext });
+            }
+
+            const temp = player.opm[myIdx];
+            player.opm[myIdx] = tPlayer.opm[tIdx];
+            tPlayer.opm[tIdx] = temp;
+            saveData(data);
+            await sock.sendMessage(from, { text: `🤝 ¡Intercambio OPM completado con éxito! 🔄`, mentions: [sender, target], ...channelContext });
+        }
+
+        // ==========================================
+        // ⚡ GESTION DES TRANSFORMATIONS UNIFIÉE (`transf`)
+        // ==========================================
+        else if (command === 'transf' || command === 'transform') {
+            const universe = args[1]?.toLowerCase();
+            const stageNum = parseInt(args[2]);
+
+            if (universe === 'dbz') {
+                if (isNaN(stageNum) || stageNum < 0 || stageNum > 3) {
+                    return sock.sendMessage(from, { text: `⚠️ Etapas DBZ válidas (0 al 3):\n0: Base\n1: Super Saiyan\n2: SSJ Blue\n3: Ultra Instinct\nUso: \`${prefix}transf dbz <etapa>\``, ...channelContext });
+                }
+                const forms = ["Base", "Super Saiyan", "SSJ Blue", "Ultra Instinct"];
+                const fg = player.dbz[player.activeDbz || 0];
+                fg.stage = stageNum;
+                fg.form = forms[stageNum];
+                fg.power = 60 + (stageNum * 45);
+                saveData(data);
+                await sock.sendMessage(from, { text: `🔥 ¡${fg.name} se ha transformado en *${fg.form}*! Su poder aumentó considerablemente.`, mentions: [sender], ...channelContext });
+            } 
+            else if (universe === 'opm') {
+                if (isNaN(stageNum) || stageNum < 0 || stageNum > 2) {
+                    return sock.sendMessage(from, { text: `⚠️ Etapas OPM válidas (0 al 2):\n0: Normal\n1: Modo Serio\n2: Modo Cósmico\nUso: \`${prefix}transf opm <etapa>\``, ...channelContext });
+                }
+                const formsOpm = ["Normal", "Modo Serio", "Modo Cósmico"];
+                const hero = player.opm[player.activeOpm || 0];
+                hero.stage = stageNum;
+                hero.form = formsOpm[stageNum];
+                hero.power = 100 + (stageNum * 60);
+                saveData(data);
+                await sock.sendMessage(from, { text: `⚡ ¡${hero.name} ha liberado su poder alcanzando el *${hero.form}*!`, mentions: [sender], ...channelContext });
+            } 
+            else {
+                await sock.sendMessage(from, { text: `⚠️ Uso correcto:\n• \`${prefix}transf dbz <0-3>\`\n• \`${prefix}transf opm <0-2>\``, ...channelContext });
+            }
         }
 
         // ==========================================
@@ -850,7 +1070,7 @@ function setupEvents(sock) {
         }
 
         // ==========================================
-        // 🎵 VRAIE RECHERCHE YOUTUBE DYNAMIQUE & MENU
+        // 🎵 YOUTUBE & MENU
         // ==========================================
         else if (command === 'youtube' || command === 'yt' || command === 'play') {
             const query = args.slice(1).join(' ');
@@ -916,11 +1136,12 @@ function setupEvents(sock) {
                 `\`${prefix}antispam\` - Control de spam\n` +
                 `\`${prefix}antilink\` - Filtro de enlaces\n\n` +
 
-                `🌿 *POKÉMON & COMBATES*\n` +
-                `\`${prefix}pstart <poke>\` - Inicial\n` +
-                `\`${prefix}equipo\` - Tu equipo\n` +
-                `\`${prefix}pcombatir @user\` - Batalla\n` +
-                `\`${prefix}pm <1-4>\` - Movimientos\n\n` +
+                `🌿 *POKÉMON, DBZ & OPM*\n` +
+                `\`${prefix}pstart\`  \`${prefix}equipo\`\n` +
+                `\`${prefix}mega\`   \`${prefix}ptrade\`\n` +
+                `\`${prefix}dbzequipo\` \`${prefix}dbz\`\n` +
+                `\`${prefix}opmequipo\` \`${prefix}opm\`\n` +
+                `\`${prefix}transf <dbz/opm> <stage>\`\n\n` +
 
                 `🎮 *JUEGOS & ARCADE*\n` +
                 `\`${prefix}ruleta <apuesta>\`\n` +
